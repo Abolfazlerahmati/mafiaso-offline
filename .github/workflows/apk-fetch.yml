@@ -13,6 +13,12 @@ on:
       source:
         description: apkpure, xapk or bazaar
         default: bazaar
+      cpu:
+        description: ABI for Bazaar split selection
+        default: arm64-v8a
+      sdk:
+        description: Android SDK for Bazaar split selection
+        default: '33'
 
 permissions:
   contents: write
@@ -31,6 +37,8 @@ jobs:
         env:
           PKG: ${{ github.event.inputs.package || 'com.paeezanstudio.pesarkhande' }}
           SRC: ${{ github.event.inputs.source || 'bazaar' }}
+          CPU: ${{ github.event.inputs.cpu || 'arm64-v8a' }}
+          SDK: ${{ github.event.inputs.sdk || '33' }}
         run: |
           set -euxo pipefail
           mkdir -p out
@@ -45,7 +53,7 @@ jobs:
               "properties": {
                   "language": 2,
                   "clientVersionCode": 2800100,
-                  "androidClientInfo": {"sdkVersion": 27, "cpu": "x86,armeabi-v7a,armeabi"},
+                  "androidClientInfo": {"sdkVersion": int(os.environ.get("SDK", "33")), "cpu": os.environ.get("CPU", "arm64-v8a")},
                   "clientVersion": "28.1.0",
                   "isKidsEnabled": False,
               },
