@@ -8,6 +8,9 @@
 
 ## شروع سریع
 
+> اولین بار اینجایی؟ [`docs/00-quickstart.md`](docs/00-quickstart.md) — از دانلود از GitHub تا اجرای بازی، گام‌به‌گام.
+
+
 ```bash
 # 1) فایل‌های اصلی را در original/ بگذارید (راهنما: docs/04-install-guide.md)
 # 2) بسازید  (ویندوز: build.cmd)
@@ -31,6 +34,7 @@ adb install out/pesarkhande-offline-arm64.apk
 
 | فایل | محتوا |
 |------|-------|
+| [`docs/00-quickstart.md`](docs/00-quickstart.md) | **از صفر تا اجرا** — دانلود، ساخت، نصب، تست |
 | [`ruls.md`](ruls.md) | قوانین و قراردادهای پروژه |
 | [`status.md`](status.md) | وضعیت جاری، هش‌ها، مایل‌ستون‌ها |
 | [`docs/01-technical-report.md`](docs/01-technical-report.md) | تحلیل فنی کامل بازی (مرحله ۱) |

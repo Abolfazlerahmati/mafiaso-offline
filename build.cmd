@@ -33,6 +33,8 @@ goto :parse
 if "%BASE%"=="" (
   for %%f in (original\*base*.apk) do if not defined BASE set "BASE=%%~ff"
   for %%f in (original\*split*arm64*.apk) do if not defined SPLIT set "SPLIT=%%~ff"
+  rem GitHub tag apk-parts ships the split as split_0.apk (no "arm64" in the name)
+  if not defined SPLIT for %%f in (original\*split*.apk) do if not defined SPLIT set "SPLIT=%%~ff"
 )
 
 if "%BASE%"=="" (

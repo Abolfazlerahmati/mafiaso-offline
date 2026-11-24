@@ -35,6 +35,11 @@ if [[ $# -ge 2 ]]; then
 else
   BASE="$(ls original/*base*.apk 2>/dev/null | head -n1 || true)"
   SPLIT="$(ls original/*split*arm64*.apk 2>/dev/null | head -n1 || true)"
+  # the GitHub tag "apk-parts" ships the arm64 split as split_0.apk (no "arm64" in
+  # the name), so fall back to any split*.apk when the strict pattern finds nothing
+  if [[ -z "${SPLIT:-}" ]]; then
+    SPLIT="$(ls original/*split*.apk 2>/dev/null | head -n1 || true)"
+  fi
 fi
 
 if [[ -z "${BASE:-}" || ! -f "$BASE" ]]; then
