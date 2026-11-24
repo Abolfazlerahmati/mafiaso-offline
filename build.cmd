@@ -59,9 +59,11 @@ if not exist "%OUT%" mkdir "%OUT%"
 
 set "RENAME_ARGS=--rename ConnectionScreen=MainMenu"
 if defined NO_RENAME set "RENAME_ARGS="
+set "WRITE_ARGS="
+if defined WRITE set "WRITE_ARGS=--write %WRITE%"
 set "BRANCH_ARGS="
 if defined BRANCH set "BRANCH_ARGS=--branch %BRANCH%"
-"%PY%" tools\patch.py build --base "%BASE%" --split "%SPLIT%" %MODE% %RENAME_ARGS% %BRANCH_ARGS% --key keys\release.key.pem --cert keys\release.cert.pem --out "%OUT%" || goto :error
+"%PY%" tools\patch.py build --base "%BASE%" --split "%SPLIT%" %MODE% %RENAME_ARGS% %BRANCH_ARGS% %WRITE_ARGS% --key keys\release.key.pem --cert keys\release.cert.pem --out "%OUT%" || goto :error
 
 echo.
 echo Build finished -^> %OUT%\pesarkhande-offline-arm64.apk

@@ -425,6 +425,9 @@ python tools/patch.py build --base … --split … --single \
 0x14c00b4  b    #0x14c62d0        ; ConnectionManager.LoadBattle
 ```
 
+همه‌ی پنج واریانت با `./build-all.sh` ساخته می‌شوند (هر کدام با ترکیب متفاوتی از
+`RENAME` / `BRANCH` / `WRITE`؛ این سه متغیر محیطی در `build.sh` و `build.cmd` پشتیبانی می‌شوند).
+
 `LoadBattle(int roomID, string customArenaID)` خودش `LoadScene("LoadingScreen")` می‌زند و
 `Constants.NextScene` را روی `"Arena_" + (roomID + 1)` می‌گذارد؛ `x0` (this) را نمی‌خواند،
 بنابراین همین چهار دستور برای ورود به `Arena_1` کافی است.

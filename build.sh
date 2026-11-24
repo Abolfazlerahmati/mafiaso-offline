@@ -12,6 +12,8 @@
 #                                    # straight to LoadMainMenu
 #   RENAME="A=B" ./build.sh        # a different literal redirect (default:
 #                                    # ConnectionScreen=MainMenu)
+#   WRITE="0x14c00ac=01008052" ./build.sh    # raw byte writes (code caves)
+#   ./build-all.sh                 # build all five variants (see docs/04)
 #
 # Requirements: python3 (3.9+) and internet access to PyPI on the first run
 # (installs the single dependency, `cryptography`). The `openssl` CLI is
@@ -75,12 +77,17 @@ fi
 BRANCH_ARGS=""
 for spec in ${BRANCH:-}; do BRANCH_ARGS="$BRANCH_ARGS --branch $spec"; done
 
+# optional raw byte writes (code caves), e.g. WRITE="0x14c00ac=01008052"
+WRITE_ARGS=""
+for spec in ${WRITE:-}; do WRITE_ARGS="$WRITE_ARGS --write $spec"; done
+
 "$PY" tools/patch.py build \
   --base "$BASE" \
   --split "$SPLIT" \
   $MODE \
   $RENAME_ARGS \
   $BRANCH_ARGS \
+  $WRITE_ARGS \
   --key keys/release.key.pem \
   --cert keys/release.cert.pem \
   --out "$OUT"
