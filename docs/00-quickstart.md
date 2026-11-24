@@ -80,6 +80,28 @@ part-00 + part-01  →  set.tar  →  base.apk + split_0.apk
 > cat part-00 part-01 > set.tar && tar -xf set.tar
 > ```
 
+### راه A′ — ویندوز با **cmd** (بدون git، بدون bash)
+
+همان راه A، ولی فقط با ابزارهای خودِ ویندوز ۱۰ (`curl.exe`، `tar.exe`، `certutil.exe`).
+در **cmd** (نه PowerShell) و داخل پوشه‌ی ریپو:
+
+```bat
+if not exist original mkdir original
+curl -L -o parts.tgz https://codeload.github.com/Abolfazlerahmati/mafiaso-offline/tar.gz/refs/tags/apk-parts
+if exist parts rmdir /s /q parts
+mkdir parts
+tar -xzf parts.tgz -C parts --strip-components=1
+copy /b parts\part-00+parts\part-01 parts\set.tar
+tar -xf parts\set.tar -C parts
+copy /y parts\base.apk original\base.apk
+copy /y parts\split_0.apk original\split_0.apk
+certutil -hashfile original\base.apk SHA256
+certutil -hashfile original\split_0.apk SHA256
+```
+
+> در cmd کامنت با `rem` است، نه `#` ( آن مال bash است) و به‌جای `sha256sum` از
+> `certutil -hashfile` استفاده می‌شود. اگر `get-apks.cmd` را دارید، همین کار را یک‌جا انجام می‌دهد.
+
 ### راه B — از روی گوشی (اگر بازی از کافه‌بازار نصب است)
 
 ```bash

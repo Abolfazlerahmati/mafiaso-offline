@@ -20,6 +20,9 @@ set "TAG=apk-parts"
 if not exist original mkdir original
 if exist original\base.apk if exist original\split_0.apk goto verify
 
+where curl >nul 2>nul || (echo !! curl.exe not found - Windows 10 1803+ is required & exit /b 1)
+where tar  >nul 2>nul || (echo !! tar.exe not found - Windows 10 1803+ is required & exit /b 1)
+
 echo [1/4] downloading tag %TAG% ...
 if exist .apk-parts rmdir /s /q .apk-parts
 mkdir .apk-parts
@@ -43,8 +46,8 @@ rmdir /s /q .apk-parts
 
 :verify
 echo [4/4] verifying hashes ...
-for /f "delims=" %%h in ('certutil -hashfile original\base.apk SHA256 ^| findstr /r "^[0-9a-fA-F]*$"') do set "HB=%%h"
-for /f "delims=" %%h in ('certutil -hashfile original\split_0.apk SHA256 ^| findstr /r "^[0-9a-fA-F]*$"') do set "HS=%%h"
+for /f "delims=" %%h in ('certutil -hashfile original\base.apk SHA256 ^| findstr /r "^[0-9a-fA-F][0-9a-fA-F]*$"') do set "HB=%%h"
+for /f "delims=" %%h in ('certutil -hashfile original\split_0.apk SHA256 ^| findstr /r "^[0-9a-fA-F][0-9a-fA-F]*$"') do set "HS=%%h"
 echo    base : %HB%
 echo    split: %HS%
 if /i not "%HB%"=="%EXPECT_BASE%" goto badhash
