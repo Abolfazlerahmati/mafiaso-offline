@@ -5,9 +5,6 @@ name: apk-fetch
 # only allows github.com / codeload.github.com.
 
 on:
-  push:
-    branches: [ arena/95d7dd6d-mafiaso-offline ]
-    paths: [ '.github/workflows/apk-fetch.yml' ]
   workflow_dispatch:
     inputs:
       package:
@@ -39,7 +36,21 @@ jobs:
           mkdir -p out
           UA='Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36'
 
-          if [ "$SRC" = "bazaar" ]; then
+          if [ "$SRC" = "xapk" ]; then
+            for url in \
+              "https://d.apkpure.com/b/XAPK/${PKG}?version=latest" \
+              "https://d.apkpure.net/b/XAPK/${PKG}?version=latest"; do
+              echo "trying $url"
+              if curl -fL --retry 5 --retry-delay 5 --connect-timeout 20 -A "$UA" -o out/game.apk "$url"; then
+                if unzip -l out/game.apk 2>/dev/null | grep -q '\.apk'; then
+                  echo "OK XAPK: $url"
+                  unzip -l out/game.apk | head -40
+                  break
+                fi
+              fi
+              rm -f out/game.apk
+            done
+          elif [ "$SRC" = "bazaar" ]; then
             python3 - <<'PY'
           import json, os, urllib.request
           pkg = os.environ["PKG"]
@@ -67,6 +78,7 @@ jobs:
               method="POST")
           with urllib.request.urlopen(req, timeout=30) as r:
               doc = json.loads(r.read())
+          print("BAZAAR REPLY:", json.dumps(doc, indent=2)[:4000])
           reply = doc["singleReply"]["appDownloadInfoReply"]
           prefix = reply["cdnPrefix"]
           if isinstance(prefix, list):
