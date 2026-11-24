@@ -1,0 +1,149 @@
+{
+  "properties": null,
+  "singleReply": {
+    "appDownloadInfoReply": {
+      "token": "504458752305.apk?expire=1795811419&token=903085270e8a4b0cd6017b8a77556e33&a=",
+      "hashCode": "3be288ae1dd6e9ae699d77b0e3bfedb36e1b3153",
+      "cdnPrefix": [
+        "https://appcdn2.cafebazaar.ir/"
+      ],
+      "ipAddress": "20.169.97.243",
+      "packageSize": "129977246",
+      "versionCode": 3420004,
+      "multiConnectionDownload": true,
+      "compatibleDevices": [],
+      "packageDiffs": [
+        {
+          "size": "50761183",
+          "oldVersionCode": 3370003,
+          "newVersionCode": 3420004,
+          "sha1hash": "cc90f34e2a1aae7e8277c2c29ab5c144ace17f67",
+          "token": "bBXRakLHI8iHe2rS1g32QRYXjqzWmo0j.diff?expire=1795811419&token=bd5febae7a2e87c54095e450ad7c3d49&a=",
+          "verboseSize": "\u06f4\u06f8",
+          "verboseSizeLabel": "\u0645\u06af\u0627\u0628\u0627\u06cc\u062a",
+          "oldVersionSha1Hash": "4f0ae778d5411acc3867aa66c5e31fae4a56499b",
+          "fullPathUrls": [
+            "https://appcdn2.cafebazaar.ir/apks/diffs/bBXRakLHI8iHe2rS1g32QRYXjqzWmo0j.diff?expire=1795811419&token=bd5febae7a2e87c54095e450ad7c3d49&a=.diff",
+            "https://arvancdn.cafebazaar.ir/arvan/apks/diffs/bBXRakLHI8iHe2rS1g32QRYXjqzWmo0j.diff?hash=a1788bd9b703f756b324ce22aca2f1f0&expires=1795811419&a=.diff"
+          ]
+        },
+        {
+          "size": "9589124",
+          "oldVersionCode": 3400023,
+          "newVersionCode": 3420004,
+          "sha1hash": "f57548bbfdb8becea533df80639402a7f694956d",
+          "token": "IDKhviN2WqYpKuZVHeHZk6Mr8MSAznN7.diff?expire=1795811419&token=a737cdee4d63997e8ab64b4f3e410029&a=",
+          "verboseSize": "\u06f9",
+          "verboseSizeLabel": "\u0645\u06af\u0627\u0628\u0627\u06cc\u062a",
+          "oldVersionSha1Hash": "94524797764c37851a9b0ca56f0d188d5f06b73c",
+          "fullPathUrls": [
+            "https://appcdn2.cafebazaar.ir/apks/diffs/IDKhviN2WqYpKuZVHeHZk6Mr8MSAznN7.diff?expire=1795811419&token=a737cdee4d63997e8ab64b4f3e410029&a=.diff",
+            "https://arvancdn.cafebazaar.ir/arvan/apks/diffs/IDKhviN2WqYpKuZVHeHZk6Mr8MSAznN7.diff?hash=b7a3e1184b0c29bda792e8df99ba4210&expires=1795811419&a=.diff"
+          ]
+        },
+        {
+          "size": "104265735",
+          "oldVersionCode": 3400000,
+          "newVersionCode": 3420004,
+          "sha1hash": "ffce5ee74e9f4e63c7fad42492c0693792b559e9",
+          "token": "U3iO4aIMC58LQR46nZcmpiRWhtH4Ed4e.diff?expire=1795811419&token=bc65a7a925578831efb11b7568a1ed23&a=",
+          "verboseSize": "\u06f9\u06f9",
+          "verboseSizeLabel": "\u0645\u06af\u0627\u0628\u0627\u06cc\u062a",
+          "oldVersionSha1Hash": "6563807618a8d2b36db483da60a5c54b3ec03df6",
+          "fullPathUrls": [
+            "https://appcdn2.cafebazaar.ir/apks/diffs/U3iO4aIMC58LQR46nZcmpiRWhtH4Ed4e.diff?expire=1795811419&token=bc65a7a925578831efb11b7568a1ed23&a=.diff",
+            "https://arvancdn.cafebazaar.ir/arvan/apks/diffs/U3iO4aIMC58LQR46nZcmpiRWhtH4Ed4e.diff?hash=27002999812f757fe4366169b55b6fb4&expires=1795811419&a=.diff"
+          ]
+        },
+        {
+          "size": "50627773",
+          "oldVersionCode": 3370002,
+          "newVersionCode": 3420004,
+          "sha1hash": "5b8381fad608f44ea523af840089618d06b4ccef",
+          "token": "2ed2owyWxSKXBFuccrbf9T00OF9C7Vdx.diff?expire=1795811419&token=2a55c9d315dfb776533cbafe6e567a59&a=",
+          "verboseSize": "\u06f4\u06f8",
+          "verboseSizeLabel": "\u0645\u06af\u0627\u0628\u0627\u06cc\u062a",
+          "oldVersionSha1Hash": "4fee0fa6a977b40c3361798f46bca7ab228b8dc9",
+          "fullPathUrls": [
+            "https://appcdn2.cafebazaar.ir/apks/diffs/2ed2owyWxSKXBFuccrbf9T00OF9C7Vdx.diff?expire=1795811419&token=2a55c9d315dfb776533cbafe6e567a59&a=.diff",
+            "https://arvancdn.cafebazaar.ir/arvan/apks/diffs/2ed2owyWxSKXBFuccrbf9T00OF9C7Vdx.diff?hash=d5dadce84a362a9c3fbc6943f94d8bc2&expires=1795811419&a=.diff"
+          ]
+        },
+        {
+          "size": "9589016",
+          "oldVersionCode": 3400023,
+          "newVersionCode": 3420004,
+          "sha1hash": "24fd62e9b1bcc2df64eabb9df588f282595e9df7",
+          "token": "hGe18nGpkfHtvHo7mXm5TYHjtVtlVm1e.diff?expire=1795811419&token=ceb9e150f74163e49833d36afd030864&a=",
+          "verboseSize": "\u06f9",
+          "verboseSizeLabel": "\u0645\u06af\u0627\u0628\u0627\u06cc\u062a",
+          "oldVersionSha1Hash": "b2096b3f9d7b9e1571fe459a61353fc55518bc66",
+          "fullPathUrls": [
+            "https://appcdn2.cafebazaar.ir/apks/diffs/hGe18nGpkfHtvHo7mXm5TYHjtVtlVm1e.diff?expire=1795811419&token=ceb9e150f74163e49833d36afd030864&a=.diff",
+            "https://arvancdn.cafebazaar.ir/arvan/apks/diffs/hGe18nGpkfHtvHo7mXm5TYHjtVtlVm1e.diff?hash=0077e858467e68389d41cc0d665bc3fd&expires=1795811419&a=.diff"
+          ]
+        },
+        {
+          "size": "104285105",
+          "oldVersionCode": 3400001,
+          "newVersionCode": 3420004,
+          "sha1hash": "240535a095c06f97b568c52122d0ca9f45ba151a",
+          "token": "5Ew7IFexudwQIjoKNQcnKvMqKfOhWl3V.diff?expire=1795811419&token=3f78e8925d277a197b2de95bf0fd77cc&a=",
+          "verboseSize": "\u06f9\u06f9",
+          "verboseSizeLabel": "\u0645\u06af\u0627\u0628\u0627\u06cc\u062a",
+          "oldVersionSha1Hash": "c5e6cae95a151d1c0d25b2bc7d611b994536b337",
+          "fullPathUrls": [
+            "https://appcdn2.cafebazaar.ir/apks/diffs/5Ew7IFexudwQIjoKNQcnKvMqKfOhWl3V.diff?expire=1795811419&token=3f78e8925d277a197b2de95bf0fd77cc&a=.diff",
+            "https://arvancdn.cafebazaar.ir/arvan/apks/diffs/5Ew7IFexudwQIjoKNQcnKvMqKfOhWl3V.diff?hash=e1d059f7f6fdde35145d27beeb4fc610&expires=1795811419&a=.diff"
+          ]
+        }
+      ],
+      "baseReferrers": [],
+      "hasSplits": true,
+      "hasAdditionalFiles": false,
+      "splits": [
+        {
+          "size": "27993663",
+          "sha1hash": "48f97f5a54dd36ccb92b01b1cfa132753ee8d0b5",
+          "relativePath": "apks/029799191197.apk?expire=1795811419&token=33e6a8bb08195aa75c13428be5748a14",
+          "token": "029799191197",
+          "cdnPrefix": [
+            "https://appcdn2.cafebazaar.ir/"
+          ],
+          "splitDiffs": [
+            {
+              "size": "5717582",
+              "oldVersionCode": 0,
+              "sha1Hash": "e5439f15e5e2a4888edc844b5a985f458b3d054a",
+              "token": "",
+              "verboseSize": "\u06f5",
+              "verboseSizeLabel": "\u0645\u06af\u0627\u0628\u0627\u06cc\u062a",
+              "oldVersionSha1Hash": "2bd797d7cd8c32a359dc63fb707b0123a68d95ea",
+              "fullPathUrls": [
+                "https://appcdn2.cafebazaar.ir/apks/diffs/Ia6aGgocPcgHAb4w2xlTFu2RrN1jcopb.diff?expire=1795811419&token=37ee3aba16e67d3ba8b27d6d927c5c4d&a=.diff",
+                "https://arvancdn.cafebazaar.ir/arvan/apks/diffs/Ia6aGgocPcgHAb4w2xlTFu2RrN1jcopb.diff?hash=bc3ff8af725347f3fb99a81bf1d69e44&expires=1795811419&a=.diff"
+              ]
+            }
+          ],
+          "fullPathUrls": [
+            "https://appcdn2.cafebazaar.ir/apks/029799191197.apk?expire=1795811419&token=33e6a8bb08195aa75c13428be5748a14",
+            "https://arvancdn.cafebazaar.ir/arvan/apks/029799191197.apk?hash=dda1ed4a901f3afd987de26401722b97&expires=1795811419"
+          ]
+        }
+      ],
+      "additionalFiles": [],
+      "installationSize": "157970909",
+      "installType": 2,
+      "installSource": "com.farsitel.bazaar",
+      "fullPathUrls": [
+        "https://appcdn2.cafebazaar.ir/apks/504458752305.apk?expire=1795811419&token=903085270e8a4b0cd6017b8a77556e33&a=.apk",
+        "https://arvancdn.cafebazaar.ir/arvan/apks/504458752305.apk?hash=fdd72bdfbb87323eb0fa0c80837eadf3&expires=1795811419&a=.apk"
+      ],
+      "requestUpdateOwnership": true,
+      "appName": "\u067e\u0633\u0631\u062e\u0648\u0627\u0646\u062f\u0647",
+      "locale": "en",
+      "preapprovalEnabled": true,
+      "incentiveReply": null
+    }
+  }
+}
