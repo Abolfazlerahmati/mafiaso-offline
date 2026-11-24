@@ -4,13 +4,15 @@
 > برنچ: `arena/95d7dd6d-mafiaso-offline` (پایه: `b6c9423`)
 > گزارش فنی مرحله ۱: [`docs/01-technical-report.md`](docs/01-technical-report.md)
 > طراحی معماری مرحله ۲: [`docs/02-architecture.md`](docs/02-architecture.md)
+> زنجیره ابزار M1: [`docs/03-toolchain.md`](docs/03-toolchain.md)
 
 ## ۱. وضعیت کلی
 
 | مورد | وضعیت |
 |------|--------|
-| مرحله فعلی | **۲ — طراحی معماری: پیش‌نویس آماده، منتظر تأیید** |
-| فاز ۱ (تحلیل) | ✅ انجام شد — [`docs/01-technical-report.md`](docs/01-technical-report.md) |
+| مرحله فعلی | **۳ — پیاده‌سازی، مایل‌ستون M1 (زنجیره ابزار) انجام شد** |
+| فاز ۱ (تحلیل) | ✅ [`docs/01-technical-report.md`](docs/01-technical-report.md) |
+| فاز ۲ (معماری) | ✅ [`docs/02-architecture.md`](docs/02-architecture.md) |
 | تغییرات اعمال‌شده روی بازی | **هیچ** (فقط تحلیل؛ هیچ فایلی از بازی تغییر نکرده) |
 | مانع اصلی | عدم امکان اجرای بازی در سندباکس → تست فقط روی دستگاه کاربر (مایل‌ستون M0) |
 
@@ -90,12 +92,12 @@
 
 | مسیر | محتوا |
 |------|-------|
-| `extracted/3.4.2/base/`، `extracted/3.4.2/split/` | محتوای unzip شده (۳۵۲M + ۷۷M) |
-| `extracted/textassets/` | ۷۸ فایل `<Name>.bytes` (JSON/CSV خام؛ برخی با BOM → خواندن با `utf-8-sig`) |
-| `extracted/inventory/` | `textassets.tsv`، `monoscripts.tsv`، `audioclips.txt`، `textures.txt`، `animations.txt`، `sprites.txt` |
-| `extracted/metadata/` | `string_literals.txt`، `string_literals_clean.txt`، `string_table.txt` |
+| `work/global-metadata.dat` | متادیتای IL2CPP (۱۴ مگابایت) |
+| `work/libil2cpp.so` | باینری IL2CPP arm64 (۴۹ مگابایت) |
+| `work/level0..2`, `globalgamemanagers` | صحنه‌های کوچک برای تحلیل جریان بوت |
+| `work/AndroidManifest.xml`, `resources.arsc` | مرجع بازسازی APK |
 
-> `extracted/` و `original/` عمداً در Git نیستند (حجم بالای ۳۰۰ مگابایت + منابع دارای حق نشر). فقط هش و فهرست آن‌ها در Git ثبت می‌شود.
+> ⚠️ سندباکس در پایان هر نوبت فقط ~۱۲۸ مگابایت از فضای کاری را نگه می‌دارد؛ به همین دلیل APKهای کامل و خروجی استخراج حذف شدند و فقط زیرمجموعه‌ی `work/` (۶۷ مگابایت) نگه داشته می‌شود. APKها با `apk-fetch.yml` در چند دقیقه قابل دریافت مجدداند.
 
 ## ۷. محدودیت‌ها و ریسک‌های شناخته‌شده
 
@@ -110,19 +112,23 @@
 
 همه تصمیم‌های کلیدی در ۳.۱ ثبت شد. تنها پرسش باز: **آیا منوی دیباگ داخلی در 3.4.2 فعال است؟** (مایل‌ستون M0).
 
-## ۹. گام بعدی (پس از تأیید `docs/02-architecture.md`)
+## ۹. مایل‌ستون‌ها
 
-**مایل‌ستون‌های تعریف‌شده در سند معماری:**
-
-| # | مایل‌ستون | خروجی |
+| # | مایل‌ستون | وضعیت |
 |---|-----------|-------|
-| M0 | آزمون بدون پچ روی دستگاه | تشخیص منوی دیباگ داخلی |
-| M1 | زنجیره ابزار (`tools/il2cpp.py`, `tools/apk.py`) | پارسر متادیتا + امضای APK |
-| M2 | بوت آفلاین | منوی اصلی بدون اینترنت |
-| M3 | نبرد آفلاین | ۳v۳ با AI |
-| M4 | ذخیره محلی | پروفایل + بکاپ |
-| M5 | فروشگاه شبیه‌سازی‌شده | خرید با ارز درون‌بازی |
-| M6 | بسته نهایی | APK arm64 قابل نصب |
+| M0 | آزمون سوایپ از لبه بالا (ابزار تستری داخلی) | ⏳ منتظر تست کاربر روی دستگاه |
+| M1 | زنجیره ابزار | ✅ انجام شد — [`docs/03-toolchain.md`](docs/03-toolchain.md) |
+| M2 | بوت آفلاین | ⏳ بعدی |
+| M3 | نبرد آفلاین با AI | ⏸️ |
+| M4 | ذخیره محلی + بکاپ | ⏸️ |
+| M5 | فروشگاه شبیه‌سازی‌شده | ⏸️ |
+| M6 | بسته نهایی arm64 | ⏸️ |
+
+### ابزارهای تحویل‌شده در M1
+
+- `tools/il2cpp.py` — پارس metadata v31 (۱۶٬۶۲۷ نوع، ۱۱۰٬۳۳۹ متد، ۷۳٬۳۳۲ فیلد) + حل relocation + یافتن `Il2CppCodeGenModule` + دیس‌اسمبل ARM64.
+- `tools/apk.py` — بازسازی ZIP با ترازبندی، امضای v1+v2+v3، راستی‌آزمایی رمزنگاری (نتیجه: `v2 crypto check: True`).
+- یافته‌ی کلیدی: کلاس‌های `ConnectionManager`، `DebugConnectionMenu`، `TesterToolUnlockManager`، `TesterToolSwipeDetector`، `TesterToolsManager` با آدرس‌های بومی. **سوایپ از لبه‌ی بالای صفحه** ابزار تستری را باز می‌کند (نامزد M0).
 
 ## ۱۰. یادآوری‌های عملیاتی
 
