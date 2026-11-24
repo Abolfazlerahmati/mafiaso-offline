@@ -3,7 +3,8 @@
 
 > **تاریخ:** 2026-11-24
 > **وضعیت:** ✅ ساخته و آزمایش شد (روی فایل‌های واقعی بازی)
-> **نیازمندی‌ها:** Python 3.11 + `UnityPy`، `capstone`، `cryptography`، `androguard` + `openssl`
+> **نیازمندی‌ها (تحلیل):** Python 3.11 + `UnityPy`، `capstone`، `cryptography`، `androguard` + `openssl`
+> **نیازمندی‌ها (فقط ساخت APK):** Python 3 + `cryptography` + `openssl` — `UnityPy`/`capstone`/`androguard` لازم نیستند
 
 ---
 
@@ -106,13 +107,14 @@ testerHeroUnlocker, testerChestAdder, testerJokerOffer, inGameDebugConsole
 ### ۳.۱. امکانات
 - `rebuild`: کپی ورودی‌ها با حفظ ترتیب/فشرده‌سازی، جایگزینی/حذف فایل، ترازبندی ۴ بایتی برای ورودی‌های ذخیره‌شده و `resources.arsc`.
 - `sign`: امضای **v1 (JAR)** + **v2** + **v3** با کلید RSA خودامضا.
+- `generate_signing_key` / `ensure_signing_key`: ساخت کلید RSA-2048 + گواهی خودامضای ۱۰ ساله با `cryptography` (بدون نیاز به `openssl`).
 - `verify`: بازخوانی با androguard + **بازمحاسبه‌ی digest و راستی‌آزمایی RSA** (تست پذیرش واقعی).
 
 ### ۳.۲. نکات پیاده‌سازی
 - ZIP از **raw DEFLATE** استفاده می‌کند (بدون هدر zlib) — استفاده از `zlib.compress` خراب می‌شود.
 - پیشوندهای طول *داخل* بلوک امضا **uint32** هستند (نه uint64)؛ فقط اندازه‌ی خود بلوک uint64 است.
 - `resources.arsc` باید ذخیره‌شده (بدون فشرده‌سازی) و تراز شده باشد.
-- امضای v1 با `openssl smime -sign -binary -noattr` ساخته می‌شود (گواهی داخل PKCS#7).
+- امضای v1 یک PKCS#7 `SignedData` بدون attribute امضاشده است: اگر `openssl` روی سیستم باشد با `openssl smime -sign -binary -noattr` ساخته می‌شود؛ در غیر این صورت با `cryptography.hazmat.primitives.serialization.pkcs7.PKCS7SignatureBuilder` (گزینه‌ی `NoAttributes`). هر دو مسیر آزمایش شده‌اند (بخش ۸.۶).
 
 ### ۳.۳. نتیجه‌ی آزمون
 
@@ -171,21 +173,29 @@ Unity صحنه‌ها را **با نام** بارگذاری می‌کند (`Scen
 
 ### ۷.۲. دستور
 ```bash
+./build.sh
+```
+
+معادل دستی:
+
+```bash
 python tools/patch.py build \
   --base original/pesarkhande-3.4.2-base.apk \
   --split original/pesarkhande-3.4.2-split_config.arm64_v8a.apk \
+  --single \
   --rename ConnectionScreen=MainMenu \
   --out out/
 ```
 
-خروجی: `pesarkhande-offline-base.apk` + `pesarkhande-offline-split_config.arm64_v8a.apk` (هر دو با یک کلید امضا شده‌اند).
+خروجی: **`out/pesarkhande-offline-arm64.apk`** — یک APK تکی، قابل نصب با `adb install`.
 
 نصب:
 ```bash
-adb install-multiple out/pesarkhande-offline-base.apk \
-                     out/pesarkhande-offline-split_config.arm64_v8a.apk
+adb install out/pesarkhande-offline-arm64.apk
 ```
-یا با برنامه‌ی **SAI** (نصب split APK) روی گوشی.
+
+> حالت `--pair` (بدون `--single`) هنوز پشتیبانی می‌شود و خروجی جداگانه‌ی base+split می‌دهد
+> (`adb install-multiple` یا برنامه‌ی SAI).
 
 ### ۷.۳. نتیجه‌ی آزمون واقعی
 ```
@@ -205,3 +215,79 @@ verifying:
 - **`offlineMode` پیدا نشد:** در IL2CPP v31 آفست فیلدها در زمان اجرا محاسبه می‌شود و در متادیتا نیست؛ جدول آفست‌های موجود در `.rodata` هم با ایندکس فیلدهای متادیتا هم‌خوان نبود. هیچ متدی در `ConnectionManager` هم بولی را در آفست‌های طبیعی (0x30..0x33) نمی‌خواند. بنابراین «true کردن offlineMode» بدون تحلیل بیشتر عملی نیست.
 - **راه‌جانشین:** تغییر نام صحنه (این پچ) یا **کنسول تستری** (سوایپ از لبه‌ی بالا).
 - این پچ فقط **مسیر بوت** را عوض می‌کند؛ پروفایل بازیکن هنوز از سرور می‌آید. اگر منو بدون پروفایل کرش کرد، مرحله‌ی بعدی ساخت پروفایل محلی است.
+
+---
+
+## ۸. `--single` — ادغام base و split در یک APK
+
+### ۸.۱. مسئله
+گیمی که به‌صورت `App Bundle` منتشر شده، روی دستگاه به‌شکل چند APK نصب می‌شود:
+یک APK پایه که **هیچ کتابخانه‌ی بومی ندارد** و چند split برای هر ABI. Manifest پایه
+`android:isSplitRequired="true"` دارد؛ یعنی به‌تنهایی نصب نمی‌شود و نصب تکی با
+`INSTALL_FAILED_MISSING_SPLIT` رد می‌شود.
+
+### ۸.۲. راه‌حل
+`tools/axml.py` manifest باینری (AXML) را بدون decompile/recompile ویرایش می‌کند:
+
+- پارس chunkها (`RES_XML_TYPE` → `RES_STRING_POOL_TYPE` → `RES_XML_RESOURCE_MAP_TYPE` → `RES_XML_START_ELEMENT_TYPE`)؛
+- یافتن `android:isSplitRequired` از طریق resource-map و string pool؛
+- فقط **مقدار** attribute (`data` در `Res_value`، نوع `TYPE_INT_BOOLEAN = 0x12`) از `1` به `0` تغییر می‌کند.
+
+بدون بازسازی کل AXML، بنابراین هیچ id یا ایندکسی جابه‌جا نمی‌شود.
+
+سپس `build_single()` در `tools/patch.py`:
+1. literalهای متادیتا را پچ می‌کند (مثل حالت pair)؛
+2. manifest را با `set_bool_attribute(..., 'isSplitRequired', False)` ویرایش می‌کند؛
+3. هر ۱۶ فایل `lib/arm64-v8a/*.so` را از split به base منتقل می‌کند (بدون تغییر، فقط استخراج و افزودن)؛
+4. کلیدهای امضا را در `keys/` می‌سازد (اگر نباشند)؛
+5. ZIP را از نو می‌سازد (تراز ۴بایتی، `resources.arsc` ذخیره‌شده) و v1+v2+v3 امضا می‌کند.
+
+### ۸.۳. نتیجه‌ی آزمون واقعی
+```
+[1/4] patching metadata literals
+  literal #4451: 'ConnectionScreen' -> 'MainMenu'
+[2/4] manifest: isSplitRequired -> false  (hits=1)
+[3/4] merging 16 native libraries from split
+[4/4] rebuilding + signing
+  v2 OK
+```
+- خروجی: `pesarkhande-offline-arm64.apk`، ۱۵۱ MB، ۷٬۹۵۷ ورودی، ۱۶ کتابخانه‌ی بومی، `libil2cpp.so` و `libunity.so` موجود.
+- `unzip -t` بدون خطا؛ androguard: `isSigned v1/v2/v3 = True/True/True`، `package=com.paeezanstudio.pesarkhande`، `versionName=3.4.2`، `versionCode=3420004`، `isSplitRequired=false`.
+- زمان ساخت روی این سندباکس: ~۲۴ ثانیه.
+
+### ۸.۴. محدودیت‌های `--single`
+- فقط **arm64-v8a**؛ اگر گوشی armv7 باشد، APK نصب نمی‌شود (`INSTALL_FAILED_NO_MATCHING_ABIS`).
+- `extractNativeLibs="true"` نگه داشته شده (بازی به‌هرحال از این ویژگی استفاده می‌کند).
+- APK تکی از نصب split‌های دیگر (مثل `split_config.xx` زبان یا تراکم پیکسل) بزرگ‌تر است، ولی کاملاً خودکفاست.
+
+### ۸.۵. `tools/axml.py` — مرجع API
+```python
+import sys; sys.path.insert(0, 'tools')
+from axml import get_bool_attribute, set_bool_attribute
+
+data = open('AndroidManifest.xml', 'rb').read()
+get_bool_attribute(data, 'application', 'isSplitRequired')                   # -> True / False / None
+data2, hits = set_bool_attribute(data, 'application', 'isSplitRequired', False)  # hits = تعداد جایگزینی
+```
+فقط attributeهای boolean قابل ویرایش‌اند و فقط **مقدار** عوض می‌شود (۱۶ بایت، بدون جابه‌جایی
+هیچ ایندکسی). برای string/int باید `Res_value` گسترش یابد (در صورت نیاز در مراحل بعدی).
+
+### ۸.۶. امضا بدون وابستگی به سیستم — Windows-friendly
+چون کاربر خودش روی سیستم خودش build می‌کند، دو وابستگی به ابزارهای سیستم حذف شدند:
+
+| مرحله | قبلاً | اکنون |
+|-------|-------|-------|
+| ساخت کلید | `openssl req -x509 …` (اجباری) | `apk.generate_signing_key()` با `cryptography` — PKCS#8 + گواهی خودامضا |
+| امضای v1 (PKCS#7) | `openssl smime -sign` (اجباری) | `openssl` اگر باشد؛ وگرنه `PKCS7SignatureBuilder` با `NoAttributes` |
+| امضای v2/v3 | `cryptography` | بدون تغییر |
+
+تنها وابستگی build: `pip install cryptography` (`requirements.txt`، نسخه‌ی ≥ ۴۱ به‌خاطر `pkcs7`).
+`build.sh` (Linux/macOS/WSL/Git Bash) و `build.cmd` (Windows) هر دو محیط مجازی می‌سازند.
+
+**آزمون (سندباکس، ۲۰۲۶-۱۱-۲۴):** دو build جدا با کلیدهای تازه:
+- مسیر `openssl`: v2 OK؛ `openssl smime -verify` روی `META-INF/CERT.RSA` → `verification successful`.
+- مسیر جایگزین (`MAFIASO_NO_OPENSSL=1`): v2 OK؛ همان oracle → `verification successful`؛ androguard v1/v2/v3 = True.
+- محتوای غیرامضایی (همه‌ی ورودی‌های غیر `META-INF/`) در دو build **بایت‌به‌بایت یکسان**.
+- `build.sh` با محیط مجازی از صفر (شامل `pip install`): ۲۷ ثانیه، خروجی ۱۵۷٬۹۶۵٬۷۵۳ بایت، v1 تأیید، v2 OK.
+
+> متغیر محیطی `MAFIASO_NO_OPENSSL=1` فقط برای آزمون مسیر جایگزین است؛ کاربر به آن نیازی ندارد.

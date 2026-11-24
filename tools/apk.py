@@ -10,7 +10,13 @@ The sandbox cannot reach Google's servers, so neither ``zipalign`` nor
   entries and ``resources.arsc``.
 * :func:`sign` — JAR (v1) + APK Signature Scheme v2 (+ v3) using a self-signed
   RSA key.
+* :func:`generate_signing_key` / :func:`ensure_signing_key` — create the
+  self-signed key pair.
 * :func:`verify` — re-read the result with androguard.
+
+Dependencies: the ``cryptography`` package (required) and the ``openssl`` CLI
+(optional — used for the v1 PKCS#7 blob when present, with a pure
+``cryptography`` fallback so Windows machines without OpenSSL work too).
 
 Usage::
 
@@ -23,8 +29,10 @@ from __future__ import annotations
 
 import argparse
 import base64
+import datetime
 import hashlib
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -244,7 +252,26 @@ def _jar_sf(manifest: bytes) -> bytes:
     return ("\r\n".join(lines) + "\r\n").encode()
 
 
+def openssl_available() -> bool:
+    """Whether the ``openssl`` CLI should be used for the v1 PKCS#7 blob.
+
+    It is optional: :func:`_pkcs7_sign_cryptography` produces the same structure
+    without it. Set ``MAFIASO_NO_OPENSSL=1`` to force the fallback (used by the
+    test-suite to exercise the Windows-without-OpenSSL path).
+    """
+    if os.environ.get("MAFIASO_NO_OPENSSL"):
+        return False
+    return shutil.which("openssl") is not None
+
+
 def _pkcs7_sign(data: bytes, key_pem: str, cert_pem: str) -> bytes:
+    """Return a DER PKCS#7 ``SignedData`` over ``data`` (``META-INF/*.RSA``)."""
+    if openssl_available():
+        return _pkcs7_sign_openssl(data, key_pem, cert_pem)
+    return _pkcs7_sign_cryptography(data, key_pem, cert_pem)
+
+
+def _pkcs7_sign_openssl(data: bytes, key_pem: str, cert_pem: str) -> bytes:
     with tempfile.TemporaryDirectory() as td:
         sf = os.path.join(td, "CERT.SF")
         out = os.path.join(td, "CERT.RSA")
@@ -261,10 +288,92 @@ def _pkcs7_sign(data: bytes, key_pem: str, cert_pem: str) -> bytes:
             return fh.read()
 
 
+def _pkcs7_sign_cryptography(data: bytes, key_pem: str, cert_pem: str) -> bytes:
+    """Same as :func:`_pkcs7_sign_openssl` (``-noattr``, content embedded) but
+    using only the ``cryptography`` package."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.serialization import pkcs7
+
+    key = _load_key(key_pem)
+    with open(cert_pem, "rb") as fh:
+        cert = x509.load_pem_x509_certificate(fh.read())
+    return (
+        pkcs7.PKCS7SignatureBuilder()
+        .set_data(data)
+        .add_signer(cert, key, hashes.SHA256())
+        .sign(
+            serialization.Encoding.DER,
+            [
+                pkcs7.PKCS7Options.Binary,
+                # NoAttributes == direct signature over the content, no
+                # authenticated attributes and no S/MIME capabilities
+                # (equivalent to ``openssl smime -sign -noattr``).
+                pkcs7.PKCS7Options.NoAttributes,
+            ],
+        )
+    )
+
+
 def _load_key(key_pem: str):
     from cryptography.hazmat.primitives import serialization
     with open(key_pem, "rb") as fh:
         return serialization.load_pem_private_key(fh.read(), password=None)
+
+
+def generate_signing_key(key_path: str, cert_path: str, days: int = 3650) -> None:
+    """Create a self-signed RSA-2048 key (PKCS#8 PEM) and certificate.
+
+    Android only needs a consistent signer for updates — the identity is
+    arbitrary, so a personal key is generated on the builder's machine and
+    never shipped. Keep it: every future build must be signed with the same
+    key to install over the previous one.
+    """
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    os.makedirs(os.path.dirname(os.path.abspath(key_path)), exist_ok=True)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name(
+        [
+            x509.NameAttribute(x509.NameOID.ORGANIZATION_NAME, "Personal Build"),
+            x509.NameAttribute(x509.NameOID.COMMON_NAME, "mafiaso-offline"),
+        ]
+    )
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(days=1))
+        .not_valid_after(now + datetime.timedelta(days=days))
+        .sign(key, hashes.SHA256())
+    )
+    with open(key_path, "wb") as fh:
+        fh.write(
+            key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            )
+        )
+    with open(cert_path, "wb") as fh:
+        fh.write(cert.public_bytes(serialization.Encoding.PEM))
+    try:
+        os.chmod(key_path, 0o600)
+    except OSError:  # e.g. Windows — the ACL is inherited from the folder
+        pass
+
+
+def ensure_signing_key(key_path: str, cert_path: str, days: int = 3650) -> bool:
+    """Generate the key pair if missing. Returns True when it was created."""
+    if os.path.exists(key_path) and os.path.exists(cert_path):
+        return False
+    generate_signing_key(key_path, cert_path, days)
+    return True
 
 
 def _signer_block(signed_data: bytes, signature: bytes, public_key: bytes) -> bytes:

@@ -7,18 +7,28 @@ Currently implemented (all data-only, no native code is modified):
 * ``rename`` — change a C# string literal inside ``global-metadata.dat``.
   Unity loads scenes by name (``SceneManager.LoadScene("ConnectionScreen")``),
   so renaming a literal redirects the boot flow without touching IL2CPP code.
+* ``--single`` — merge the base APK with the arm64 native libraries of the
+  config split and flip ``android:isSplitRequired`` to ``false`` in the binary
+  manifest, producing one standalone APK that installs with plain ``adb install``.
 
-Example — skip the login screen and boot straight into the main menu::
+Example — skip the login screen and boot straight into the main menu, as one
+standalone APK::
 
-    python tools/patch.py build \\
-        --base original/pesarkhande-3.4.2-base.apk \\
-        --split original/pesarkhande-3.4.2-split_config.arm64_v8a.apk \\
-        --rename ConnectionScreen=MainMenu \\
+    python tools/patch.py build\
+        --base original/pesarkhande-3.4.2-base.apk\
+        --split original/pesarkhande-3.4.2-split_config.arm64_v8a.apk\
+        --single\
+        --rename ConnectionScreen=MainMenu\
         --out out/
 
-The result is a base+split pair signed with the same self-signed key, ready for
-``adb install-multiple`` (or SAI). Every step is logged and reversible: the
-original files are never modified.
+Without ``--single`` the result is a base+split pair signed with the same
+self-signed key (``adb install-multiple`` or SAI).
+
+Requirements: Python 3.9+, the ``cryptography`` package and — optionally —
+the ``openssl`` CLI (a pure-``cryptography`` fallback exists). Every step is
+logged and reversible: the original files are never modified. The signing key
+is generated in ``keys/`` on first use; keep it so later builds install over
+earlier ones.
 """
 
 from __future__ import annotations
@@ -26,15 +36,14 @@ from __future__ import annotations
 import argparse
 import os
 import struct
-import subprocess
 import sys
-import tempfile
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from apk import ApkBuilder, sign, verify, verify_v2_crypto  # noqa: E402
+from apk import ApkBuilder, ensure_signing_key, sign, verify, verify_v2_crypto  # noqa: E402
 from il2cpp import DEFAULT_METADATA, parse_header  # noqa: E402
+from axml import set_bool_attribute  # noqa: E402
 
 METADATA_ENTRY = "assets/bin/Data/Managed/Metadata/global-metadata.dat"
 
@@ -84,20 +93,9 @@ def patch_literal(data: bytearray, old: str, new: str, verbose: bool = True) -> 
 
 
 def ensure_key(key_path: str, cert_path: str) -> None:
-    if os.path.exists(key_path) and os.path.exists(cert_path):
-        return
-    os.makedirs(os.path.dirname(os.path.abspath(key_path)), exist_ok=True)
-    subprocess.run(
-        [
-            "openssl", "req", "-x509", "-newkey", "rsa:2048",
-            "-keyout", key_path, "-out", cert_path,
-            "-days", "3650", "-nodes", "-subj", "/CN=mafiaso-offline/O=Personal Build",
-        ],
-        check=True,
-        capture_output=True,
-    )
-    os.chmod(key_path, 0o600)
-    print(f"generated signing key: {key_path}")
+    """Create the personal signing key on first use (kept in ``keys/``)."""
+    if ensure_signing_key(key_path, cert_path):
+        print(f"generated signing key: {key_path}")
 
 
 def build(
@@ -157,10 +155,75 @@ def build(
     return outs
 
 
+def build_single(
+    base_apk: str,
+    split_apk: str,
+    out_dir: str,
+    renames: Sequence[str],
+    key: str,
+    cert: str,
+    extra_replace: Sequence[str] = (),
+) -> str:
+    """Merge base + native libs from the split into one standalone APK.
+
+    ``android:isSplitRequired`` is flipped to false in the binary manifest so
+    Android accepts a single-file install (no SAI / install-multiple needed).
+    """
+    import zipfile
+
+    os.makedirs(out_dir, exist_ok=True)
+    ensure_key(key, cert)
+
+    with zipfile.ZipFile(base_apk) as z:
+        meta = bytearray(z.read(METADATA_ENTRY))
+        manifest = z.read("AndroidManifest.xml")
+    with zipfile.ZipFile(split_apk) as z:
+        libs = {i.filename: z.read(i.filename) for i in z.infolist() if i.filename.startswith("lib/")}
+    if not libs:
+        raise SystemExit("the split APK contains no lib/ entries")
+
+    print("[1/4] patching metadata literals")
+    for spec in renames:
+        old, new = spec.split("=", 1)
+        meta, hits = patch_literal(meta, old, new)
+        if hits == 0:
+            raise SystemExit(f"literal not found: {old!r}")
+        print(f"  {hits} occurrence(s)")
+
+    print("[2/4] patching manifest (isSplitRequired -> false)")
+    manifest, hits = set_bool_attribute(manifest, "application", "isSplitRequired", False)
+    if hits != 1:
+        raise SystemExit(f"unexpected isSplitRequired hit count: {hits}")
+
+    print(f"[3/4] rebuilding APK with {len(libs)} native libraries")
+    tmp = os.path.join(out_dir, "single-unsigned.apk")
+    builder = (
+        ApkBuilder(base_apk)
+        .replace(METADATA_ENTRY, bytes(meta))
+        .replace("AndroidManifest.xml", manifest)
+    )
+    for spec in extra_replace:
+        name, path = spec.split("=", 1)
+        builder.replace(name, open(path, "rb").read())
+    for name, payload in libs.items():
+        builder.add(name, payload)
+    builder.build(tmp)
+
+    print("[4/4] signing")
+    out_path = os.path.join(out_dir, "pesarkhande-offline-arm64.apk")
+    sign(tmp, out_path, key, cert)
+    os.remove(tmp)
+
+    ok, msg = verify_v2_crypto(out_path)
+    print(f"\nverify: v2 {'OK' if ok else 'FAILED'} — {msg}")
+    if not ok:
+        raise SystemExit(1)
+    return out_path
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -171,6 +234,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--split", default=None)
     p.add_argument("--out", default="out")
     p.add_argument("--rename", action="append", default=[], metavar="OLD=NEW")
+    p.add_argument("--single", action="store_true", help="merge base+split into one standalone APK")
     p.add_argument("--replace", action="append", default=[], metavar="NAME=PATH")
     p.add_argument("--key", default="keys/release.key.pem")
     p.add_argument("--cert", default="keys/release.cert.pem")
@@ -182,9 +246,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = ap.parse_args(argv)
 
     if args.cmd == "build":
-        outs = build(args.base, args.split, args.out, args.rename, args.key, args.cert, args.replace)
-        print("\ninstall with:")
-        print("  adb install-multiple " + " ".join(outs))
+        if args.single:
+            if not args.split:
+                raise SystemExit("--single requires --split")
+            out = build_single(args.base, args.split, args.out, args.rename, args.key, args.cert, args.replace)
+            print("\ninstall with:")
+            print(f"  adb install {out}")
+        else:
+            outs = build(args.base, args.split, args.out, args.rename, args.key, args.cert, args.replace)
+            print("\ninstall with:")
+            print("  adb install-multiple " + " ".join(outs))
     elif args.cmd == "inspect":
         import re
 
