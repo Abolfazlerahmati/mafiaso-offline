@@ -161,3 +161,47 @@ v2 crypto check  : True — v2 OK (algo 0x101, subject=O=Personal Build,CN=mafia
 | تست نصب | ❌ فقط روی دستگاه کاربر |
 | پارسر v2 androguard | ⚠️ محدودیت خود کتابخانه (نه امضا) |
 | فیلد آفست‌ها | ⚠️ از metadata v31 قابل استخراج نیست؛ باید از کد استنباط شود |
+
+---
+
+## ۷. `tools/patch.py` — پچ داده‌محور و بازسازی بسته
+
+### ۷.۱. چرا پچ داده به‌جای پچ باینری؟
+Unity صحنه‌ها را **با نام** بارگذاری می‌کند (`SceneManager.LoadScene("ConnectionScreen")`). نام‌ها در جدول `Il2CppStringLiteral` متادیتا ذخیره شده‌اند؛ بنابراین تغییر یک رشته، مسیر بوت را عوض می‌کند **بدون دست زدن به یک بایت از کد IL2CPP**.
+
+### ۷.۲. دستور
+```bash
+python tools/patch.py build \
+  --base original/pesarkhande-3.4.2-base.apk \
+  --split original/pesarkhande-3.4.2-split_config.arm64_v8a.apk \
+  --rename ConnectionScreen=MainMenu \
+  --out out/
+```
+
+خروجی: `pesarkhande-offline-base.apk` + `pesarkhande-offline-split_config.arm64_v8a.apk` (هر دو با یک کلید امضا شده‌اند).
+
+نصب:
+```bash
+adb install-multiple out/pesarkhande-offline-base.apk \
+                     out/pesarkhande-offline-split_config.arm64_v8a.apk
+```
+یا با برنامه‌ی **SAI** (نصب split APK) روی گوشی.
+
+### ۷.۳. نتیجه‌ی آزمون واقعی
+```
+[1/4] patching metadata literals
+  literal #4451: 'ConnectionScreen' -> 'MainMenu'
+[2/4] rebuilding base APK
+[3/4] signing base
+[4/4] rebuilding + signing split
+
+verifying:
+  pesarkhande-offline-base.apk: v2 OK
+  pesarkhande-offline-split_config.arm64_v8a.apk: v2 OK
+```
+بازبینی مستقیم متادیتای خروجی: `#4451 = 'MainMenu'` ✓ و هر دو APK با `unzip -t` سالم‌اند.
+
+### ۷.۴. محدودیت‌های پچ
+- **`offlineMode` پیدا نشد:** در IL2CPP v31 آفست فیلدها در زمان اجرا محاسبه می‌شود و در متادیتا نیست؛ جدول آفست‌های موجود در `.rodata` هم با ایندکس فیلدهای متادیتا هم‌خوان نبود. هیچ متدی در `ConnectionManager` هم بولی را در آفست‌های طبیعی (0x30..0x33) نمی‌خواند. بنابراین «true کردن offlineMode» بدون تحلیل بیشتر عملی نیست.
+- **راه‌جانشین:** تغییر نام صحنه (این پچ) یا **کنسول تستری** (سوایپ از لبه‌ی بالا).
+- این پچ فقط **مسیر بوت** را عوض می‌کند؛ پروفایل بازیکن هنوز از سرور می‌آید. اگر منو بدون پروفایل کرش کرد، مرحله‌ی بعدی ساخت پروفایل محلی است.
