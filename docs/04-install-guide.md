@@ -349,6 +349,7 @@ adb restore mafiaso-backup.ab
 | `INSTALL_FAILED_NO_MATCHING_ABIS` | گوشی arm64 نیست | نسخه‌ی armv7 لازم است (پشتیبانی نمی‌شود) |
 | `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | امضای متفاوت | حذف نسخه‌ی اصلی، سپس نصب |
 | `INSTALL_PARSE_FAILED_NO_CERTIFICATES` | امضا خراب | `python3 tools/apk.py verify --in out/....apk` |
+| **«App not installed»** (بدون جزئیات، مخصوصاً روی سامسونگ) | در buildهای قبل از اصلاح امضا: چیدمان بلوک v2 غلط بود | با کد فعلی دوباره build بگیر؛ اگر تکرار شد خروجی `python3 tools/apk.py verify --in out/....apk` را بفرستید |
 | نصب می‌شود ولی کرش می‌کند | پچ ناسازگار | `adb logcat` بفرستید |
 | صفحه‌ی سیاه | AssetBundle راه‌دور | نیاز به M3 |
 | `python3: command not found` / `'python' is not recognized` | پایتون نصب نیست یا در PATH نیست | از python.org نصب کنید و «Add to PATH» را بزنید |

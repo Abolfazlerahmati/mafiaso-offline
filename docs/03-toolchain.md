@@ -135,6 +135,29 @@ v2 crypto check  : True — v2 OK (algo 0x101, subject=O=Personal Build,CN=mafia
 
 ---
 
+### ۳.۴. باگ امضا که «app not installed» می‌داد (اصلاح شد)
+
+چیدمان فیلدهای `digests` و `signatures` در بلوک امضای v2 دو پیشوند طول لازم دارد
+(یکی برای فیلد، یکی برای توالیِ ورودی‌ها):
+
+```
+len_prefixed( len_prefixed( u32 algo + len_prefixed(digest) ) )
+```
+
+نسخه‌ی اول فقط یک پیشوند می‌نوشت. نتیجه: امضای v2 از نظر **رمزنگاری** درست بود
+(و `verify_v2_crypto` پاس می‌شد) ولی **چیدمان** با آنچه apksig/اندروید انتظار دارد
+فرق داشت → اندروید با پیام کلی «app not installed» رد می‌کرد. هم‌زمان یک بلوک v3
+ناقص هم ساخته می‌شد که ترتیب minSdk/maxSdk در آن غلط بود.
+
+اصلاح (commit مربوطه):
+- `_sequence_field()` هر ورودی را در دو پیشوند طول می‌پیچد؛
+- بلوک v3 با ترتیب درست (`signed data | signatures | public key | minSdk | maxSdk | attributes`)؛
+- **v3 به‌طور پیش‌فرض خاموش** شد، چون خودِ بازی هم فقط v1+v2 است؛
+- `verify_signing_block()` اضافه شد: چیدمان هر بلوک را می‌پارسد و امضا را روی `signed data` چک می‌کند؛
+- `verify()` حالا یک راستی‌آزمایی مستقل هم با androguard انجام می‌دهد (`get_certificates_der_v2`).
+
+نتیجه روی هر پنج بیلد: `v1=True v2=True v3=False` و `v2 certs: OK(1)` — دقیقاً مثل APK اصلی.
+
 ## ۴. آزمون M0 — دستور برای کاربر
 
 بازی **نسخه‌ی اصلی 3.4.2** را نصب کنید (بدون هیچ پچی) و این را امتحان کنید:

@@ -46,7 +46,14 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from apk import ApkBuilder, ensure_signing_key, sign, verify, verify_v2_crypto  # noqa: E402
+from apk import (  # noqa: E402
+    ApkBuilder,
+    ensure_signing_key,
+    sign,
+    verify,
+    verify_signing_block,
+    verify_v2_crypto,
+)
 from il2cpp import DEFAULT_METADATA, parse_header  # noqa: E402
 from axml import set_bool_attribute  # noqa: E402
 
@@ -313,6 +320,10 @@ def build(
         print(f"  {os.path.basename(path)}: v2 {'OK' if ok else 'FAILED'} — {msg}")
         if not ok:
             raise SystemExit(1)
+        ok, msg = verify_signing_block(path)
+        print(f"  {os.path.basename(path)}: signing block {'OK' if ok else 'FAILED'} — {msg}")
+        if not ok:
+            raise SystemExit(1)
     return outs
 
 
@@ -395,6 +406,10 @@ def build_single(
 
     ok, msg = verify_v2_crypto(out_path)
     print(f"\nverify: v2 {'OK' if ok else 'FAILED'} — {msg}")
+    if not ok:
+        raise SystemExit(1)
+    ok, msg = verify_signing_block(out_path)
+    print(f"verify: signing block {'OK' if ok else 'FAILED'} — {msg}")
     if not ok:
         raise SystemExit(1)
     return out_path

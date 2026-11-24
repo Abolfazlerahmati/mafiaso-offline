@@ -376,6 +376,18 @@ def ensure_signing_key(key_path: str, cert_path: str, days: int = 3650) -> bool:
     return True
 
 
+def _sequence_field(entry: bytes) -> bytes:
+    """Wrap one entry in the double length prefix Android expects.
+
+    Both the digests and the signatures field are
+    ``len-prefixed(len-prefixed(u32 algorithm id + len-prefixed payload))``:
+    one prefix for the field, one for the sequence of entries. Emitting only
+    the inner one produces an APK that apksig/Android refuse with a generic
+    "app not installed" (androguard rejects it too).
+    """
+    return _len_prefixed(_len_prefixed(entry))
+
+
 def _signer_block(signed_data: bytes, signature: bytes, public_key: bytes) -> bytes:
     return _len_prefixed(_len_prefixed(signed_data) + _len_prefixed(signature) + _len_prefixed(public_key))
 
@@ -387,14 +399,15 @@ def sign(
     cert_pem: str,
     v1: bool = True,
     v2: bool = True,
-    v3: bool = True,
+    v3: bool = False,
     min_sdk: int = 23,
     max_sdk: int = 2147483647,
 ) -> None:
     """Sign ``apk_in`` and write ``apk_out``.
 
-    v1 (JAR) keeps Android 6 working, v2 is required for targetSdk >= 30 and
-    v3 is added for forward compatibility.
+    v1 (JAR) keeps Android 6 working, v2 is required for targetSdk >= 30.
+    v3 is off by default because the shipped game is signed v1+v2 only and a
+    malformed v3 signer makes Android refuse the whole APK.
     """
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import padding
@@ -445,24 +458,31 @@ def sign(
     digest = _chunked_sha256(data[:cd_start] + data[cd_start:eocd_pos] + bytes(eocd))
 
     # ---- v2 / v3 signed data --------------------------------------------
+    digests_field = _sequence_field(_u32(ALGO_RSA_PKCS1_SHA256) + _len_prefixed(digest))
     signed_data = (
-        _len_prefixed(_u32(ALGO_RSA_PKCS1_SHA256) + _len_prefixed(digest))
+        digests_field
         + _len_prefixed(_len_prefixed(cert_der))
         + _len_prefixed(b"")
     )
     sig_v2 = key.sign(signed_data, padding.PKCS1v15(), hashes.SHA256())
-    signer_v2 = _signer_block(signed_data, _u32(ALGO_RSA_PKCS1_SHA256) + _len_prefixed(sig_v2), public_key_der)
+    # _signer_block() adds the field prefix itself, so only the sequence prefix here
+    sig_field = _len_prefixed(_u32(ALGO_RSA_PKCS1_SHA256) + _len_prefixed(sig_v2))
+    signer_v2 = _signer_block(signed_data, sig_field, public_key_der)
 
     blocks: List[Tuple[int, bytes]] = []
     if v2:
         blocks.append((V2_BLOCK_ID, _len_prefixed(signer_v2)))
     if v3:
-        signer_v3 = (
+        # v3 signer = signed data | signatures | public key | minSdk | maxSdk | attributes
+        # (the previous order put min/maxSdk before the signatures, which made
+        #  Android reject the whole signing block: "app not installed")
+        signer_v3 = _len_prefixed(
             _len_prefixed(signed_data)
+            + _len_prefixed(sig_field)
+            + _len_prefixed(public_key_der)
             + _u32(min_sdk)
             + _u32(max_sdk)
-            + _len_prefixed(_u32(ALGO_RSA_PKCS1_SHA256) + _len_prefixed(sig_v2))
-            + _len_prefixed(public_key_der)
+            + _len_prefixed(b"")
         )
         blocks.append((V3_BLOCK_ID, _len_prefixed(signer_v3)))
 
@@ -525,18 +545,22 @@ def verify_v2_crypto(apk_path: str) -> Tuple[bool, str]:
     signers, _ = rd(v2_value, 0)
     signer, _ = rd(signers, 0)
     signed_data, off = rd(signer, 0)
-    signatures, off = rd(signer, off)
-    public_key_der, _ = rd(signer, off)
+    signatures_field, off = rd(signer, off)
+    public_key_der, off = rd(signer, off)
+    if off != len(signer):
+        return False, "trailing bytes in v2 signer"
+    signatures, _ = rd(signatures_field, 0)
 
     # digest of the unsigned APK
     eocd = bytearray(data[eocd_pos:])
     struct.pack_into("<I", eocd, 16, block_start)
     digest = _chunked_sha256(data[:block_start] + data[cd_start:eocd_pos] + bytes(eocd))
 
-    # digests inside signed data
-    digests_blob, sd_off = rd(signed_data, 0)
-    algo = struct.unpack_from("<I", digests_blob, 0)[0]
-    expected_digest, _ = rd(digests_blob, 4)
+    # digests inside signed data: field -> sequence -> (algo, len-prefixed digest)
+    digests_field, sd_off = rd(signed_data, 0)
+    digests_seq, _ = rd(digests_field, 0)
+    algo = struct.unpack_from("<I", digests_seq, 0)[0]
+    expected_digest, _ = rd(digests_seq, 4)
     if expected_digest != digest:
         return False, f"content digest mismatch (algo {algo:#x})"
 
@@ -562,6 +586,83 @@ def verify_v2_crypto(apk_path: str) -> Tuple[bool, str]:
 
 
 
+def verify_signing_block(apk_path: str) -> Tuple[bool, str]:
+    """Parse the APK Signing Block structurally and verify every signer.
+
+    ``verify_v2_crypto`` only checks that the content digest and the v2 RSA
+    signature are right; it does not check that the *layout* of the signers is
+    what Android expects. A malformed signer (e.g. a v3 block with minSdk in
+    the wrong place) makes Android reject the whole APK with a generic
+    "app not installed" - hence this check.
+    """
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding
+    from cryptography.exceptions import InvalidSignature
+
+    data = open(apk_path, "rb").read()
+    eocd_pos = data.rfind(b"PK\x05\x06")
+    cd_start = struct.unpack_from("<I", data, eocd_pos + 16)[0]
+    block_len = struct.unpack_from("<Q", data, cd_start - 24)[0]
+    block_start = cd_start - 8 - block_len
+    if data[cd_start - 16 : cd_start] != APK_SIG_BLOCK_MAGIC:
+        return False, "signing block magic not found"
+    if block_start < 0:
+        return False, "signing block length out of range"
+
+    def rd(buf: bytes, off: int) -> Tuple[bytes, int]:
+        (n,) = struct.unpack_from("<I", buf, off)
+        if off + 4 + n > len(buf):
+            raise ValueError(f"length prefix {n} overruns {len(buf)} at {off}")
+        return buf[off + 4 : off + 4 + n], off + 4 + n
+
+    found: List[str] = []
+    pos = block_start + 8
+    limit = cd_start - 24
+    while pos + 12 <= limit:
+        pair_len = struct.unpack_from("<Q", data, pos)[0]
+        if pair_len < 4 or pos + 8 + pair_len > limit:
+            return False, f"corrupt id-value pair at {pos:#x}"
+        pair_id = struct.unpack_from("<I", data, pos + 8)[0]
+        value = data[pos + 12 : pos + 8 + pair_len]
+        try:
+            signers, _ = rd(value, 0)
+            signer, _ = rd(signers, 0)
+            signed_data, off = rd(signer, 0)
+            signatures_field, off = rd(signer, off)
+            public_key_der, off = rd(signer, off)
+            signatures, _ = rd(signatures_field, 0)
+            if pair_id == V3_BLOCK_ID:
+                # v3 continues with minSdk, maxSdk and an attributes blob
+                min_sdk, max_sdk = struct.unpack_from("<II", signer, off)
+                _attrs, off2 = rd(signer, off + 8)
+                if off2 != len(signer):
+                    raise ValueError("trailing bytes in v3 signer")
+                found.append(f"v3(minSdk={min_sdk}, maxSdk={max_sdk})")
+            elif pair_id == V2_BLOCK_ID:
+                if off != len(signer):
+                    raise ValueError("trailing bytes in v2 signer")
+                found.append("v2")
+            else:
+                pos += 8 + pair_len
+                continue
+            # verify the signature over the signed data
+            sig_algo = struct.unpack_from("<I", signatures, 0)[0]
+            signature, _ = rd(signatures, 4)
+            pubkey = serialization.load_der_public_key(public_key_der)
+            try:
+                pubkey.verify(signature, signed_data, padding.PKCS1v15(), hashes.SHA256())
+            except InvalidSignature:
+                return False, f"invalid signature in block {pair_id:#x}"
+        except Exception as exc:
+            return False, f"malformed block {pair_id:#x}: {type(exc).__name__}: {exc}"
+        pos += 8 + pair_len
+
+    if not found:
+        return False, "no v2/v3 signer found"
+    return True, "signers OK: " + ", ".join(found)
+
+
 def verify(apk_path: str) -> int:
     from loguru import logger
 
@@ -575,6 +676,15 @@ def verify(apk_path: str) -> int:
     print(f"signed v1/v2/v3  : {a.is_signed_v1()} / {a.is_signed_v2()} / {a.is_signed_v3()}")
     ok, msg = verify_v2_crypto(apk_path)
     print(f"v2 crypto check  : {ok} — {msg}")
+    ok, msg = verify_signing_block(apk_path)
+    print(f"signing block    : {ok} — {msg}")
+    # independent cross-check: androguard's own parser must be able to read the
+    # v2 block (it rejected our earlier layout, which is what Android did too)
+    try:
+        certs = a.get_certificates_der_v2() or []
+        print(f"androguard v2    : OK ({len(certs)} certificate(s))")
+    except Exception as exc:
+        print(f"androguard v2    : FAILED — {type(exc).__name__}: {exc}")
     # androguard's own v2 parser chokes on the length prefixes; the crypto
     # check above is the authoritative one.
     try:
