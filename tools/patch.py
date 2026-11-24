@@ -182,6 +182,31 @@ def patch_native(
     return bytes(out), records
 
 
+def patch_raw(so: bytes, writes: Sequence[str], verbose: bool = True) -> Tuple[bytes, List[dict]]:
+    """Write raw bytes at virtual addresses: ``SITE=HEX`` (hex, even length)."""
+    out = bytearray(so)
+    records: List[dict] = []
+    for spec in writes:
+        site_s, _, hex_s = spec.partition("=")
+        site, payload = int(site_s, 0), bytes.fromhex(hex_s.strip())
+        if not payload:
+            raise SystemExit(f"{site_s}: empty payload")
+        off = vaddr_to_offset(out, site)
+        old = bytes(out[off : off + len(payload)])
+        out[off : off + len(payload)] = payload
+        records.append(
+            {
+                "site": f"{site:#x}",
+                "before": old.hex(),
+                "after": payload.hex(),
+                "instruction": "raw",
+            }
+        )
+        if verbose:
+            print(f"  {site:#x}: {old.hex()} -> {payload.hex()}  ({len(payload)} bytes)")
+    return bytes(out), records
+
+
 def build_manifest(renames: Sequence[str], native: Sequence[dict]) -> bytes:
     """Small JSON audit trail embedded in the APK next to the patched data."""
     import datetime
@@ -222,6 +247,7 @@ def build(
     extra_replace: Sequence[str] = (),
     branches: Sequence[str] = (),
     lib_name: str = LIBIL2CPP,
+    writes: Sequence[str] = (),
 ) -> List[str]:
     os.makedirs(out_dir, exist_ok=True)
     ensure_key(key, cert)
@@ -248,6 +274,9 @@ def build(
         with zipfile.ZipFile(split_apk) as z:
             so = z.read(lib_name)
         lib_payloads[lib_name], native_records = patch_native(so, branches)
+        if writes:
+            lib_payloads[lib_name], extra = patch_raw(lib_payloads[lib_name], writes)
+            native_records += extra
 
     manifest = build_manifest(renames, native_records)
 
@@ -297,6 +326,7 @@ def build_single(
     extra_replace: Sequence[str] = (),
     branches: Sequence[str] = (),
     lib_name: str = LIBIL2CPP,
+    writes: Sequence[str] = (),
 ) -> str:
     """Merge base + native libs from the split into one standalone APK.
 
@@ -331,6 +361,12 @@ def build_single(
             raise SystemExit(f"{lib_name} not found in the split APK")
         print(f"[1.5/4] patching native code in {lib_name}")
         libs[lib_name], native_records = patch_native(libs[lib_name], branches)
+    if writes:
+        if lib_name not in libs:
+            raise SystemExit(f"{lib_name} not found in the split APK")
+        print(f"[1.6/4] writing raw bytes into {lib_name}")
+        libs[lib_name], extra = patch_raw(libs[lib_name], writes)
+        native_records += extra
 
     print("[2/4] patching manifest (isSplitRequired -> false)")
     manifest, hits = set_bool_attribute(manifest, "application", "isSplitRequired", False)
@@ -385,6 +421,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="write an AArch64 'b' at virtual address SITE going to TARGET (hex)",
     )
     p.add_argument("--lib", default=LIBIL2CPP, help="library that --branch applies to")
+    p.add_argument(
+        "--write",
+        action="append",
+        default=[],
+        metavar="SITE=HEX",
+        help="write raw hex bytes at a virtual address (code cave / stub)",
+    )
     p.add_argument("--single", action="store_true", help="merge base+split into one standalone APK")
     p.add_argument("--replace", action="append", default=[], metavar="NAME=PATH")
     p.add_argument("--key", default="keys/release.key.pem")
@@ -402,14 +445,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise SystemExit("--single requires --split")
             out = build_single(
                 args.base, args.split, args.out, args.rename, args.key, args.cert,
-                args.replace, args.branch, args.lib,
+                args.replace, args.branch, args.lib, args.write,
             )
             print("\ninstall with:")
             print(f"  adb install {out}")
         else:
             outs = build(
                 args.base, args.split, args.out, args.rename, args.key, args.cert,
-                args.replace, args.branch, args.lib,
+                args.replace, args.branch, args.lib, args.write,
             )
             print("\ninstall with:")
             print("  adb install-multiple " + " ".join(outs))
