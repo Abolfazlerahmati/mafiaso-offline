@@ -119,44 +119,65 @@ testerHeroUnlocker, testerChestAdder, testerJokerOffer, inGameDebugConsole
 ### ۳.۳. نتیجه‌ی آزمون
 
 ```
-$ python tools/apk.py rebuild --in base.apk --out rebuilt.apk
-$ unzip -t rebuilt.apk      → No errors detected in compressed data
-
 $ python tools/apk.py sign --in rebuilt.apk --out signed.apk ...
 $ python tools/apk.py verify --in signed.apk
+v1 check         : True — v1 OK (7955 entries, PKCS#7 verified)
+v2 crypto check  : True — v2 OK (algo 0x103, subject=CN=mafiaso-offline,O=Personal Build)
+signing block    : True — signers OK: v2
 package          : com.paeezanstudio.pesarkhande
 versionName      : 3.4.2
 versionCode      : 3420004
-signed v1/v2/v3  : True / True / True
-v2 crypto check  : True — v2 OK (algo 0x101, subject=O=Personal Build,CN=mafiaso-offline)
+signed v1/v2/v3  : True / True / False
+androguard v2    : OK (1 certificate(s))
+certificate(v1)  : CN=mafiaso-offline,O=Personal Build
+sha256           : e3e6791a86b64a5a286bfcde2df0517e1bb4ffe64eacbe9578baaa3219fe82ca
 ```
 
-> **محدودیت:** پارسر v2 خودِ androguard با پیشوندهای طول مشکل دارد (`get_certificates_der_v2` خطا می‌دهد)؛ اما `openssl pkcs7` و `openssl smime -verify` هر دو امضای v1 را تأیید می‌کنند و بازمحاسبه‌ی رمزنگاری v2 در `verify_v2_crypto` موفق است. تأیید نهایی فقط با نصب روی دستگاه ممکن است.
+همین دستور روی **APK اصلی** هم اجرا می‌شود و پاس می‌شود (`v1 OK (8114 entries, PKCS#7 verified)`،
+`v2 OK (algo 0x103)`)؛ این بهترین نشانه‌ی درستیِ پیاده‌سازی امضاست، چون APK اصلی را
+اندروید بی‌کم‌وکاست قبول می‌کند.
 
 ---
 
-### ۳.۴. باگ امضا که «app not installed» می‌داد (اصلاح شد)
+### ۳.۴. سه باگ امضا که «App not installed» می‌دادند (اصلاح شد)
 
-چیدمان فیلدهای `digests` و `signatures` در بلوک امضای v2 دو پیشوند طول لازم دارد
-(یکی برای فیلد، یکی برای توالیِ ورودی‌ها):
+APK از نظر ساختار سالم بود، اما اندروید آن را با پیام کلی «App not installed» رد می‌کرد.
+سه ایراد مستقل در `tools/apk.py` پیدا شد که هر کدام به‌تنهایی کافی بود:
 
-```
-len_prefixed( len_prefixed( u32 algo + len_prefixed(digest) ) )
-```
+**۱) هش محتوا روی «بخش‌ها» محاسبه نمی‌شد.**
+اندروید APK را به سه بخش محافظت‌شده تقسیم می‌کند (محتوای ZIP، Central Directory، EOCD)
+و **هر بخش را جداگانه** به تکه‌های ۱ مگابایتی می‌شکند؛ شمارنده‌ی تکه‌ها از مرز بخش بعدی
+دوباره از صفر شروع می‌شود. کد قبلی هر سه بخش را به هم می‌چسباند و بعد تکه می‌کرد، پس هشی
+که تولید می‌شد با هشی که اندروید حساب می‌کند یکی نبود. با APK اصلی (که هش درستش را
+داریم) تست شد: با الگوریتم بخش‌به‌بخش، هش **دقیقاً** برابر مقدار داخل فایل شد.
 
-نسخه‌ی اول فقط یک پیشوند می‌نوشت. نتیجه: امضای v2 از نظر **رمزنگاری** درست بود
-(و `verify_v2_crypto` پاس می‌شد) ولی **چیدمان** با آنچه apksig/اندروید انتظار دارد
-فرق داشت → اندروید با پیام کلی «app not installed» رد می‌کرد. هم‌زمان یک بلوک v3
-ناقص هم ساخته می‌شد که ترتیب minSdk/maxSdk در آن غلط بود.
+**۲) شناسه‌ی الگوریتم اشتباه بود.**
+`0x0101` یعنی RSASSA-PSS با SHA-256، در حالی که امضا با PKCS#1 v1.5 زده می‌شد. شناسه‌ی
+درست برای PKCS#1 v1.5 + SHA-256 **`0x0103`** است (APK اصلی هم همین را دارد).
 
-اصلاح (commit مربوطه):
-- `_sequence_field()` هر ورودی را در دو پیشوند طول می‌پیچد؛
-- بلوک v3 با ترتیب درست (`signed data | signatures | public key | minSdk | maxSdk | attributes`)؛
-- **v3 به‌طور پیش‌فرض خاموش** شد، چون خودِ بازی هم فقط v1+v2 است؛
-- `verify_signing_block()` اضافه شد: چیدمان هر بلوک را می‌پارسد و امضا را روی `signed data` چک می‌کند؛
-- `verify()` حالا یک راستی‌آزمایی مستقل هم با androguard انجام می‌دهد (`get_certificates_der_v2`).
+**۳) فیلدهای `digests` و `signatures` فقط یک پیشوند طول داشتند.**
+شکل درست: `len_prefixed(len_prefixed(u32 algo + len_prefixed(payload)))` — یک پیشوند برای
+فیلد، یکی برای توالیِ ورودی‌ها. با یک پیشوند، امضا از نظر رمزنگاری درست بود ولی چیدمان
+با آنچه apksig انتظار دارد فرق داشت (پارسر androguard هم رد می‌کرد).
 
-نتیجه روی هر پنج بیلد: `v1=True v2=True v3=False` و `v2 certs: OK(1)` — دقیقاً مثل APK اصلی.
+اصلاح‌ها:
+- `_content_digest(sections)`: هش بخش‌به‌بخش؛ `verify_v2_crypto` هم همین را استفاده می‌کند؛
+- `ALGO_RSA_PKCS1_SHA256 = 0x0103`؛ `_verify_signature()` هر چهار حالت RSA را پشتیبانی می‌کند؛
+- `_sequence_field()` با دو پیشوند طول؛ بلوک v3 هم با ترتیب رسمی
+  (`signed data | minSDK | maxSDK | signatures | public key`) بازنویسی شد و به‌طور پیش‌فرض
+  خاموش است (خودِ بازی فقط v1+v2 دارد)؛
+- `X-Android-APK-Signed: 2` به `CERT.SF` اضافه شد (محافظت در برابر حذف بلوک v2)؛
+- `verify_v1()` جدید: هش همه‌ی ورودی‌های `MANIFEST.MF` را با فایل واقعی مقایسه می‌کند و
+  امضای PKCS#7 را با openssl راستی‌آزمایی می‌کند؛
+- `verify_signing_block()` چیدمان بلوک را می‌پارسد و از جفت‌های غیرامضایی (مثل padding) رد می‌شود؛
+- `verify()` هر سه را گزارش می‌دهد.
+
+**معیار پذیرش** (همه پاس شد):
+- APK اصلی: `v1 OK (8114 entries, PKCS#7 verified)` و `v2 OK (algo 0x103)`؛
+- هر پنج بیلد: `v1 OK (7955 entries)`، `v2 OK (algo 0x103)`، `signing block OK`،
+  `androguard v2: OK (1 certificate)`؛
+- راستی‌آزمایی مستقل (اسکریپت جدا از `apk.py`): هش محتوا برابر مقدار ذخیره‌شده و امضای
+  RSA با کلید عمومیِ داخل گواهی تأیید شد.
 
 ## ۴. آزمون M0 — دستور برای کاربر
 

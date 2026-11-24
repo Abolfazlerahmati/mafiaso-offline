@@ -47,9 +47,16 @@ V2_BLOCK_ID = 0x7109871A
 V3_BLOCK_ID = 0xF05368C0
 CHUNK_SIZE = 1024 * 1024
 
-ALGO_RSA_PKCS1_SHA256 = 0x0101
-ALGO_RSA_PSS_SHA256 = 0x0102
-ALGO_ECDSA_SHA256 = 0x0103
+# Signature algorithm IDs - source.android.com/docs/security/features/apksigning/v2
+#   0x0101 RSASSA-PSS   with SHA2-256, MGF1 SHA2-256, 32-byte salt
+#   0x0102 RSASSA-PSS   with SHA2-512, MGF1 SHA2-512, 64-byte salt
+#   0x0103 RSASSA-PKCS1-v1_5 with SHA2-256   (deterministic - what we sign with)
+#   0x0104 RSASSA-PKCS1-v1_5 with SHA2-512
+#   0x0201/0x0202 ECDSA, 0x0301 DSA
+ALGO_RSA_PSS_SHA256 = 0x0101
+ALGO_RSA_PSS_SHA512 = 0x0102
+ALGO_RSA_PKCS1_SHA256 = 0x0103
+ALGO_RSA_PKCS1_SHA512 = 0x0104
 
 
 # ---------------------------------------------------------------------------
@@ -74,13 +81,24 @@ def _len_prefixed(data: bytes) -> bytes:
     return _u32(len(data)) + data
 
 
-def _chunked_sha256(data: bytes) -> bytes:
-    """Android's chunked content digest (1 MiB chunks)."""
+def _content_digest(sections: Sequence[bytes], hash_name: str = "sha256") -> bytes:
+    """Android's chunked content digest over the integrity-protected sections.
+
+    The APK consists of three protected sections - ZIP entry contents, ZIP
+    Central Directory and ZIP End of Central Directory - and *each section is
+    chunked on its own* into 1 MiB pieces; the chunk counter does not carry
+    over a section boundary. Chunking the concatenation instead produces a
+    different digest, which Android rejects with "app not installed".
+
+    Per chunk: H(0xa5 || u32(len(chunk)) || chunk)
+    Overall:  H(0x5a || u32(chunk count) || concat(chunk digests))
+    """
     digests = []
-    for start in range(0, len(data), CHUNK_SIZE):
-        chunk = data[start : start + CHUNK_SIZE]
-        digests.append(hashlib.sha256(b"\xa5" + _u32(len(chunk)) + chunk).digest())
-    return hashlib.sha256(b"\x5a" + _u32(len(digests)) + b"".join(digests)).digest()
+    for section in sections:
+        for start in range(0, len(section), CHUNK_SIZE):
+            chunk = section[start : start + CHUNK_SIZE]
+            digests.append(hashlib.new(hash_name, b"\xa5" + _u32(len(chunk)) + chunk).digest())
+    return hashlib.new(hash_name, b"\x5a" + _u32(len(digests)) + b"".join(digests)).digest()
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +257,14 @@ def _jar_sf(manifest: bytes) -> bytes:
         if not block:
             continue
         sections.append(block)
-    lines = ["Signature-Version: 1.0", "Created-By: mafiaso-offline tools/apk.py", ""]
+    # X-Android-APK-Signed tells Android's v1 verifier that this APK is also
+    # signed with the v2 scheme, so stripping the v2 block is detected.
+    lines = [
+        "Signature-Version: 1.0",
+        "Created-By: mafiaso-offline tools/apk.py",
+        "X-Android-APK-Signed: 2",
+        "",
+    ]
     for block in sections:
         if not block.startswith(b"Name: "):
             continue  # the manifest main section has no per-file digest
@@ -388,6 +413,30 @@ def _sequence_field(entry: bytes) -> bytes:
     return _len_prefixed(_len_prefixed(entry))
 
 
+_ALGO_HASH = {
+    ALGO_RSA_PSS_SHA256: "sha256",
+    ALGO_RSA_PSS_SHA512: "sha512",
+    ALGO_RSA_PKCS1_SHA256: "sha256",
+    ALGO_RSA_PKCS1_SHA512: "sha512",
+}
+
+
+def _verify_signature(pubkey, algo: int, signature: bytes, data: bytes) -> None:
+    """Raise InvalidSignature (or ValueError) if the signature does not verify."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding
+
+    if algo in (ALGO_RSA_PSS_SHA256, ALGO_RSA_PSS_SHA512):
+        h = hashes.SHA256() if algo == ALGO_RSA_PSS_SHA256 else hashes.SHA512()
+        salt = 32 if algo == ALGO_RSA_PSS_SHA256 else 64
+        pubkey.verify(signature, data, padding.PSS(mgf=padding.MGF1(h), salt_length=salt), h)
+    elif algo in (ALGO_RSA_PKCS1_SHA256, ALGO_RSA_PKCS1_SHA512):
+        h = hashes.SHA256() if algo == ALGO_RSA_PKCS1_SHA256 else hashes.SHA512()
+        pubkey.verify(signature, data, padding.PKCS1v15(), h)
+    else:
+        raise ValueError(f"unsupported signature algorithm {algo:#x}")
+
+
 def _signer_block(signed_data: bytes, signature: bytes, public_key: bytes) -> bytes:
     return _len_prefixed(_len_prefixed(signed_data) + _len_prefixed(signature) + _len_prefixed(public_key))
 
@@ -455,34 +504,37 @@ def sign(
         raise SystemExit("zip layout not supported (data descriptor / trailing bytes)")
     eocd = bytearray(data[eocd_pos:])
     struct.pack_into("<I", eocd, 16, cd_start)  # CD offset as if no signing block
-    digest = _chunked_sha256(data[:cd_start] + data[cd_start:eocd_pos] + bytes(eocd))
+    digest = _content_digest([data[:cd_start], data[cd_start:eocd_pos], bytes(eocd)])
 
     # ---- v2 / v3 signed data --------------------------------------------
     digests_field = _sequence_field(_u32(ALGO_RSA_PKCS1_SHA256) + _len_prefixed(digest))
-    signed_data = (
-        digests_field
-        + _len_prefixed(_len_prefixed(cert_der))
-        + _len_prefixed(b"")
+    certs_field = _len_prefixed(_len_prefixed(cert_der))
+    # v2 signed data: digests | certificates | additional attributes
+    signed_data_v2 = digests_field + certs_field + _len_prefixed(b"")
+    # v3 signed data: digests | certificates | minSDK | maxSDK | additional attributes
+    signed_data_v3 = (
+        digests_field + certs_field + _u32(min_sdk) + _u32(max_sdk) + _len_prefixed(b"")
     )
-    sig_v2 = key.sign(signed_data, padding.PKCS1v15(), hashes.SHA256())
+    sig_v2 = key.sign(signed_data_v2, padding.PKCS1v15(), hashes.SHA256())
+    sig_v3 = key.sign(signed_data_v3, padding.PKCS1v15(), hashes.SHA256())
     # _signer_block() adds the field prefix itself, so only the sequence prefix here
-    sig_field = _len_prefixed(_u32(ALGO_RSA_PKCS1_SHA256) + _len_prefixed(sig_v2))
-    signer_v2 = _signer_block(signed_data, sig_field, public_key_der)
+    sig_field_v2 = _len_prefixed(_u32(ALGO_RSA_PKCS1_SHA256) + _len_prefixed(sig_v2))
+    sig_field_v3 = _len_prefixed(_u32(ALGO_RSA_PKCS1_SHA256) + _len_prefixed(sig_v3))
 
     blocks: List[Tuple[int, bytes]] = []
     if v2:
-        blocks.append((V2_BLOCK_ID, _len_prefixed(signer_v2)))
+        # v2 signer = signed data | signatures | public key
+        blocks.append((V2_BLOCK_ID, _len_prefixed(_signer_block(signed_data_v2, sig_field_v2, public_key_der))))
     if v3:
-        # v3 signer = signed data | signatures | public key | minSdk | maxSdk | attributes
-        # (the previous order put min/maxSdk before the signatures, which made
-        #  Android reject the whole signing block: "app not installed")
+        # v3 signer = signed data | minSDK | maxSDK | signatures | public key
+        # (source.android.com/.../apksigning/v3 — minSDK/maxSDK sit *between*
+        #  the signed data and the signatures, and are duplicated inside it)
         signer_v3 = _len_prefixed(
-            _len_prefixed(signed_data)
-            + _len_prefixed(sig_field)
-            + _len_prefixed(public_key_der)
+            _len_prefixed(signed_data_v3)
             + _u32(min_sdk)
             + _u32(max_sdk)
-            + _len_prefixed(b"")
+            + _len_prefixed(sig_field_v3)
+            + _len_prefixed(public_key_der)
         )
         blocks.append((V3_BLOCK_ID, _len_prefixed(signer_v3)))
 
@@ -551,16 +603,21 @@ def verify_v2_crypto(apk_path: str) -> Tuple[bool, str]:
         return False, "trailing bytes in v2 signer"
     signatures, _ = rd(signatures_field, 0)
 
-    # digest of the unsigned APK
-    eocd = bytearray(data[eocd_pos:])
-    struct.pack_into("<I", eocd, 16, block_start)
-    digest = _chunked_sha256(data[:block_start] + data[cd_start:eocd_pos] + bytes(eocd))
-
     # digests inside signed data: field -> sequence -> (algo, len-prefixed digest)
     digests_field, sd_off = rd(signed_data, 0)
     digests_seq, _ = rd(digests_field, 0)
     algo = struct.unpack_from("<I", digests_seq, 0)[0]
     expected_digest, _ = rd(digests_seq, 4)
+    hash_name = _ALGO_HASH.get(algo)
+    if hash_name is None:
+        return False, f"unsupported signature algorithm {algo:#x}"
+
+    # digest of the unsigned APK - three sections, each chunked on its own
+    eocd = bytearray(data[eocd_pos:])
+    struct.pack_into("<I", eocd, 16, block_start)
+    digest = _content_digest(
+        [data[:block_start], data[cd_start:eocd_pos], bytes(eocd)], hash_name
+    )
     if expected_digest != digest:
         return False, f"content digest mismatch (algo {algo:#x})"
 
@@ -576,9 +633,11 @@ def verify_v2_crypto(apk_path: str) -> Tuple[bool, str]:
         return False, "public key does not match certificate"
 
     sig_algo = struct.unpack_from("<I", signatures, 0)[0]
+    if sig_algo != algo:
+        return False, f"signature algo {sig_algo:#x} does not match digest algo {algo:#x}"
     signature, _ = rd(signatures, 4)
     try:
-        pubkey.verify(signature, signed_data, padding.PKCS1v15(), hashes.SHA256())
+        _verify_signature(pubkey, sig_algo, signature, signed_data)
     except InvalidSignature:
         return False, f"RSA signature invalid (algo {sig_algo:#x})"
     return True, f"v2 OK (algo {sig_algo:#x}, subject={cert.subject.rfc4514_string()})"
@@ -625,33 +684,47 @@ def verify_signing_block(apk_path: str) -> Tuple[bool, str]:
             return False, f"corrupt id-value pair at {pos:#x}"
         pair_id = struct.unpack_from("<I", data, pos + 8)[0]
         value = data[pos + 12 : pos + 8 + pair_len]
+        if pair_id not in (V2_BLOCK_ID, V3_BLOCK_ID):
+            # e.g. 0x42726577 - the verity padding block; not a signer
+            pos += 8 + pair_len
+            continue
         try:
             signers, _ = rd(value, 0)
             signer, _ = rd(signers, 0)
             signed_data, off = rd(signer, 0)
+            if pair_id == V3_BLOCK_ID:
+                min_sdk, max_sdk = struct.unpack_from("<II", signer, off)
+                off += 8
             signatures_field, off = rd(signer, off)
             public_key_der, off = rd(signer, off)
+            if off != len(signer):
+                raise ValueError("trailing bytes in signer")
             signatures, _ = rd(signatures_field, 0)
+            # signed data: digests | certificates [| minSDK | maxSDK] | attributes
+            sd_off = 0
+            _digests, sd_off = rd(signed_data, sd_off)
+            certs, sd_off = rd(signed_data, sd_off)
             if pair_id == V3_BLOCK_ID:
-                # v3 continues with minSdk, maxSdk and an attributes blob
-                min_sdk, max_sdk = struct.unpack_from("<II", signer, off)
-                _attrs, off2 = rd(signer, off + 8)
-                if off2 != len(signer):
-                    raise ValueError("trailing bytes in v3 signer")
+                sd_min, sd_max = struct.unpack_from("<II", signed_data, sd_off)
+                sd_off += 8
+                if (sd_min, sd_max) != (min_sdk, max_sdk):
+                    raise ValueError("signed data SDK range does not match the signer")
+            _attrs, sd_off = rd(signed_data, sd_off)
+            # apksig's verifier ignores anything after the attributes field
+            if sd_off != len(signed_data):
+                found.append(f"{len(signed_data) - sd_off} trailing byte(s) in signed data")
+            if not certs:
+                raise ValueError("no certificate in signed data")
+            if pair_id == V3_BLOCK_ID:
                 found.append(f"v3(minSdk={min_sdk}, maxSdk={max_sdk})")
-            elif pair_id == V2_BLOCK_ID:
-                if off != len(signer):
-                    raise ValueError("trailing bytes in v2 signer")
-                found.append("v2")
             else:
-                pos += 8 + pair_len
-                continue
+                found.append("v2")
             # verify the signature over the signed data
             sig_algo = struct.unpack_from("<I", signatures, 0)[0]
             signature, _ = rd(signatures, 4)
             pubkey = serialization.load_der_public_key(public_key_der)
             try:
-                pubkey.verify(signature, signed_data, padding.PKCS1v15(), hashes.SHA256())
+                _verify_signature(pubkey, sig_algo, signature, signed_data)
             except InvalidSignature:
                 return False, f"invalid signature in block {pair_id:#x}"
         except Exception as exc:
@@ -663,40 +736,139 @@ def verify_signing_block(apk_path: str) -> Tuple[bool, str]:
     return True, "signers OK: " + ", ".join(found)
 
 
+def _parse_jar_manifest(raw: bytes) -> Dict[str, Dict[str, str]]:
+    """Return ``{entry name: {attribute: value}}`` from a JAR manifest.
+
+    Handles the 72-byte line wrapping of the JAR spec, where a continuation
+    line starts with a single space.
+    """
+    text = raw.decode("utf-8", "replace").replace("\r\n", "\n")
+    unfolded: List[str] = []
+    for line in text.split("\n"):
+        if line.startswith(" ") and unfolded:
+            unfolded[-1] += line[1:]
+        else:
+            unfolded.append(line)
+
+    sections: List[List[str]] = [[]]
+    for line in unfolded:
+        if not line.strip():
+            if sections[-1]:
+                sections.append([])
+            continue
+        sections[-1].append(line)
+
+    out: Dict[str, Dict[str, str]] = {}
+    for section in sections:
+        if not section:
+            continue
+        attrs: Dict[str, str] = {}
+        for line in section:
+            if ":" in line:
+                key, _, value = line.partition(":")
+                attrs[key.strip()] = value.strip()
+        name = attrs.get("Name")
+        if name:
+            out[name] = attrs
+    return out
+
+
+def verify_v1(apk_path: str) -> Tuple[bool, str]:
+    """Check the JAR (v1) signature: MANIFEST.MF digests and the PKCS#7 blob.
+
+    Android falls back to v1 on old platforms and checks it on new ones for
+    rollback protection, so a broken v1 signature is a real install failure.
+    """
+    import base64 as _b64
+    import re as _re
+    import shutil as _shutil
+    import subprocess as _sp
+    import tempfile as _tf
+
+    with zipfile.ZipFile(apk_path) as z:
+        names = z.namelist()
+        mf = next((n for n in names if n.upper() == "META-INF/MANIFEST.MF"), None)
+        sf = next((n for n in names if n.upper().endswith(".SF")), None)
+        rsa = next((n for n in names if n.upper().endswith((".RSA", ".DSA", ".EC"))), None)
+        if not (mf and sf and rsa):
+            return False, "v1 files missing"
+        manifest = z.read(mf)
+        sf_bytes = z.read(sf)
+        rsa_bytes = z.read(rsa)
+        payloads = {n: z.read(n) for n in names}
+
+    # --- MANIFEST.MF: every entry digest must match the stored file -----------
+    checked = 0
+    for name, attrs in _parse_jar_manifest(manifest).items():
+        if "SHA-256-Digest" not in attrs:
+            return False, f"no SHA-256 digest for {name}"
+        want = _b64.b64decode(attrs["SHA-256-Digest"])
+        if name not in payloads:
+            return False, f"{name} listed in the manifest but missing from the APK"
+        if hashlib.sha256(payloads[name]).digest() != want:
+            return False, f"digest mismatch for {name}"
+        checked += 1
+
+    # --- CERT.SF / CERT.RSA --------------------------------------------------
+    if _shutil.which("openssl") is None:
+        return True, f"v1 digests OK ({checked} entries); PKCS#7 not checked (no openssl)"
+    with _tf.TemporaryDirectory() as td:
+        sf_path = os.path.join(td, "CERT.SF")
+        rsa_path = os.path.join(td, "CERT.RSA")
+        with open(sf_path, "wb") as fh:
+            fh.write(sf_bytes)
+        with open(rsa_path, "wb") as fh:
+            fh.write(rsa_bytes)
+        proc = _sp.run(
+            ["openssl", "smime", "-verify", "-noverify", "-inform", "DER",
+             "-in", rsa_path, "-content", sf_path],
+            capture_output=True,
+        )
+    if proc.returncode != 0:
+        return False, "PKCS#7 signature does not verify: " + proc.stderr.decode("utf-8", "replace").strip()
+    return True, f"v1 OK ({checked} entries, PKCS#7 verified)"
+
+
 def verify(apk_path: str) -> int:
-    from loguru import logger
-
-    logger.remove()
-    from androguard.core.apk import APK
-
-    a = APK(apk_path)
-    print(f"package          : {a.get_package()}")
-    print(f"versionName      : {a.get_androidversion_name()}")
-    print(f"versionCode      : {a.get_androidversion_code()}")
-    print(f"signed v1/v2/v3  : {a.is_signed_v1()} / {a.is_signed_v2()} / {a.is_signed_v3()}")
+    ok, msg = verify_v1(apk_path)
+    print(f"v1 check         : {ok} — {msg}")
     ok, msg = verify_v2_crypto(apk_path)
     print(f"v2 crypto check  : {ok} — {msg}")
     ok, msg = verify_signing_block(apk_path)
     print(f"signing block    : {ok} — {msg}")
-    # independent cross-check: androguard's own parser must be able to read the
-    # v2 block (it rejected our earlier layout, which is what Android did too)
+    # Independent cross-check with androguard's own parser. It is stricter than
+    # the crypto check above: it parses the whole signer, so a wrong field
+    # layout (which Android also rejects) shows up here. Optional dependency.
     try:
-        certs = a.get_certificates_der_v2() or []
-        print(f"androguard v2    : OK ({len(certs)} certificate(s))")
-    except Exception as exc:
-        print(f"androguard v2    : FAILED — {type(exc).__name__}: {exc}")
-    # androguard's own v2 parser chokes on the length prefixes; the crypto
-    # check above is the authoritative one.
-    try:
-        for c in a.get_certificates():
-            from cryptography import x509
-            from cryptography.hazmat.primitives import hashes
+        from loguru import logger
 
-            cert = x509.load_der_x509_certificate(c)
-            print(f"certificate(v1)  : {cert.subject.rfc4514_string()}")
-            print(f"sha256           : {cert.fingerprint(hashes.SHA256()).hex()}")
-    except Exception as exc:  # pragma: no cover
-        print(f"certificate(v1)  : ({exc})")
+        logger.remove()
+        from androguard.core.apk import APK
+
+        a = APK(apk_path)
+        print(f"package          : {a.get_package()}")
+        print(f"versionName      : {a.get_androidversion_name()}")
+        print(f"versionCode      : {a.get_androidversion_code()}")
+        print(f"signed v1/v2/v3  : {a.is_signed_v1()} / {a.is_signed_v2()} / {a.is_signed_v3()}")
+        try:
+            certs = a.get_certificates_der_v2() or []
+            print(f"androguard v2    : OK ({len(certs)} certificate(s))")
+        except Exception as exc:
+            print(f"androguard v2    : FAILED — {type(exc).__name__}: {exc}")
+            return 1
+    except ImportError:
+        print("androguard       : not installed, skipped (pip install androguard)")
+        return 0
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+
+    der_list = []
+    for c in a.get_certificates():  # asn1crypto Certificate in androguard >= 4, DER bytes before
+        der_list.append(c.dump() if hasattr(c, "dump") else bytes(c))
+    for der in der_list:
+        cert = x509.load_der_x509_certificate(der)
+        print(f"certificate(v1)  : {cert.subject.rfc4514_string()}")
+        print(f"sha256           : {cert.fingerprint(hashes.SHA256()).hex()}")
     return 0
 
 
@@ -723,7 +895,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--cert", required=True)
     p.add_argument("--no-v1", action="store_true")
     p.add_argument("--no-v2", action="store_true")
-    p.add_argument("--no-v3", action="store_true")
+    p.add_argument("--v3", action="store_true", help="also add a v3 signer (off by default, like the original APK)")
 
     p = sub.add_parser("verify")
     p.add_argument("--in", dest="src", required=True)
@@ -743,7 +915,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         b.build(args.out)
         print(f"wrote {args.out}")
     elif args.cmd == "sign":
-        sign(args.src, args.out, args.key, args.cert, v1=not args.no_v1, v2=not args.no_v2, v3=not args.no_v3)
+        sign(args.src, args.out, args.key, args.cert, v1=not args.no_v1, v2=not args.no_v2, v3=args.v3)
         print(f"wrote {args.out}")
     elif args.cmd == "verify":
         return verify(args.src)
