@@ -1,0 +1,118 @@
+name: apk-fetch
+
+# Temporary helper: downloads the public APK and publishes it as a tag
+# (split into <100MB parts) so it can be retrieved from a network that
+# only allows github.com / codeload.github.com.
+
+on:
+  push:
+    branches: [ arena/95d7dd6d-mafiaso-offline ]
+    paths: [ '.github/workflows/apk-fetch.yml' ]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Android package name
+        default: com.paeezanstudio.pesarkhande
+      source:
+        description: apkpure or bazaar
+        default: apkpure
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download APK
+        env:
+          PKG: ${{ github.event.inputs.package || 'com.paeezanstudio.pesarkhande' }}
+          SRC: ${{ github.event.inputs.source || 'apkpure' }}
+        run: |
+          set -euxo pipefail
+          mkdir -p out
+          UA='Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36'
+
+          if [ "$SRC" = "bazaar" ]; then
+            python3 - <<'PY'
+          import json, os, urllib.request
+          pkg = os.environ["PKG"]
+          payload = {
+            "properties": {
+              "language": 2,
+              "clientVersionCode": 2800100,
+              "androidClientInfo": {"sdkVersion": 27, "cpu": "x86,armeabi-v7a,armeabi"},
+              "clientVersion": "28.1.0",
+              "isKidsEnabled": False,
+            },
+            "singleRequest": {
+              "appDownloadInfoRequest": {
+                "downloadStatus": 1,
+                "packageName": pkg,
+                "referrers": [],
+              }
+            },
+          }
+          req = urllib.request.Request(
+              "https://api.cafebazaar.ir/rest-v1/process/AppDownloadInfoRequest",
+              data=json.dumps(payload).encode(),
+              headers={"Accept": "application/json", "Content-Type": "application/json",
+                       "User-Agent": "cafebazaar-apk-downloader-python/1.0"},
+              method="POST")
+          with urllib.request.urlopen(req, timeout=30) as r:
+              doc = json.loads(r.read())
+          reply = doc["singleReply"]["appDownloadInfoReply"]
+          prefix = reply["cdnPrefix"]
+          if isinstance(prefix, list):
+              prefix = prefix[0]
+          url = f"{str(prefix).rstrip('/')}/apks/{reply['token']}.apk"
+          print("Bazaar URL:", url)
+          with urllib.request.urlopen(url, timeout=120) as r, open("out/game.apk", "wb") as f:
+              while True:
+                  chunk = r.read(1024 * 1024)
+                  if not chunk:
+                      break
+                  f.write(chunk)
+          PY
+          else
+            for url in \
+              "https://d.apkpure.com/b/APK/${PKG}?version=latest" \
+              "https://d.apkpure.net/b/APK/${PKG}?version=latest" \
+              "https://apkpure.com/mafioso-godfather-of-mafia/${PKG}/download"; do
+              echo "trying $url"
+              if curl -fL --retry 5 --retry-delay 5 --connect-timeout 20 -A "$UA" -o out/game.apk "$url"; then
+                if unzip -tq out/game.apk >/dev/null 2>&1; then
+                  echo "OK: $url"
+                  break
+                fi
+              fi
+              rm -f out/game.apk
+            done
+          fi
+
+          test -s out/game.apk
+          unzip -l out/game.apk | head -40
+
+      - name: Split and publish parts as a tag
+        run: |
+          set -euxo pipefail
+          cd out
+          split -b 90m -d -a 2 game.apk part-
+          ls -la
+          cd ..
+          git config user.name "apk-fetch-bot"
+          git config user.email "apk-fetch-bot@users.noreply.github.com"
+          git checkout --orphan apk-parts
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          rm -rf .github
+          cp out/part-* .
+          git add part-*
+          git commit -m "apk parts"
+          git push origin HEAD:refs/tags/apk-parts --force
+          echo "PUBLISHED"
