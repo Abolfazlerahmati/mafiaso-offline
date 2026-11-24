@@ -120,6 +120,37 @@ OUT=/tmp/build ./build.sh         # پوشه‌ی خروجی دلخواه
 هر دو واریانت فایل `assets/pesarkhande-offline/patches.json` را داخل APK می‌گذارند؛
 فهرست کامل تغییرات (رشته‌ها، آدرس‌ها، بایت‌های قبل/بعد) آنجاست — هم برای بازگشت و هم برای بازرسی.
 
+### بیلد سوم — «نبرد آزمایشی» (اختیاری، فقط بعد از تأیید M2)
+
+این بیلد روی واریانت A سوار می‌شود و یک **کُد کِیو** می‌نویسد تا دکمه‌ی «شروع نبرد»
+به‌جای رفتن به سرور، مستقیم `ConnectionManager.LoadBattle(0, null)` را صدا بزند
+(یعنی `Arena_1` بدون مچ‌میکینگ):
+
+```bash
+python tools/patch.py build \
+  --base original/pesarkhande-3.4.2-base.apk \
+  --split original/pesarkhande-3.4.2-split_config.arm64_v8a.apk \
+  --single --rename ConnectionScreen=MainMenu \
+  --branch 0x15a1868=0x14c00ac \
+  --write "0x14c00ac=01008052e2031faa87180014" \
+  --out out-battle/
+```
+
+معنای بایت‌ها (با دیس‌اسمبل تأیید شده):
+
+| آدرس | دستور | کار |
+|------|-------|-----|
+| `0x15a1868` | `b 0x14c00ac` | قلاب: ابتدای `MenuManager.StartBattle` |
+| `0x14c00ac` | `mov w1, #0` | آرگومان `roomID = 0` |
+| `0x14c00b0` | `mov x2, xzr` | آرگومان `customArenaID = null` |
+| `0x14c00b4` | `b 0x14c62d0` | پرش به `ConnectionManager.LoadBattle` |
+
+بدنه‌ی `SetupFlow` (که در واریانت A هرگز اجرا نمی‌شود) به‌عنوان کِیو استفاده شده است.
+⚠️ **این بیلد آزمایشی است:** ورود به `Arena_1` تضمین نمی‌کند نبرد با بات شروع شود؛
+ممکن است صحنه منتظر حریف بماند. نتیجه‌اش دقیقاً می‌گوید مرحله‌ی بعدی کجاست.
+اگر منو با این بیلد بالا نیامد، یعنی `StartBattle` در استارتاپ صدا زده می‌شود —
+همین را هم گزارش کنید.
+
 ### اجرای دستی (بدون اسکریپت)
 ```bash
 python3 -m pip install -r requirements.txt

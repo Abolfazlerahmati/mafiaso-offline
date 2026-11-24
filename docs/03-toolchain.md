@@ -398,3 +398,26 @@ python tools/patch.py build --base … --split … --single \
 
 راستی‌آزمایی روی خروجی واقعی: در `out-native/…apk` دقیقاً **یک** بلوک ۴ کیلوبایتی از
 `libil2cpp.so` با نسخه‌ی اصلی فرق دارد و بایت‌های `0x14c00a8` به `b 0x14c6498` دیکد می‌شوند.
+
+### ۱۰.۶. `--write` — نوشتن بایت خام (کُد کِیو)
+
+برای وقتی که یک `b` تنها کافی نیست و باید آرگومان ساخته شود:
+
+```bash
+--write "0x14c00ac=01008052e2031faa87180014"
+```
+
+بایت‌ها در همان آدرس مجازی نوشته و بایت‌های اصلی در منیفست ثبت می‌شوند. کاربرد
+همزمان با `--branch`: قلاب در ابتدای یک متد + چند دستور در یک ناحیه‌ی مرده‌ی کد.
+مثال واقعی (بیلد سوم، بخش «نبرد آزمایشی» در راهنمای نصب):
+
+```
+0x15a1868  b    #0x14c00ac        ; MenuManager.StartBattle -> cave
+0x14c00ac  mov  w1, #0            ; roomID = 0
+0x14c00b0  mov  x2, xzr           ; customArenaID = null
+0x14c00b4  b    #0x14c62d0        ; ConnectionManager.LoadBattle
+```
+
+`LoadBattle(int roomID, string customArenaID)` خودش `LoadScene("LoadingScreen")` می‌زند و
+`Constants.NextScene` را روی `"Arena_" + (roomID + 1)` می‌گذارد؛ `x0` (this) را نمی‌خواند،
+بنابراین همین چهار دستور برای ورود به `Arena_1` کافی است.

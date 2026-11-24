@@ -14,7 +14,7 @@
 | بوت آفلاین (رد شدن از صفحه‌ی اتصال) | 🟡 دو واریانت ساخته‌شده، **آزمون‌نشده** | A: پچ داده‌محور `ConnectionScreen → MainMenu`؛ B: پچ کد بومی `SetupFlow → LoadMainMenu` |
 | ادغام base+split در یک APK | ✅ کامل | `isSplitRequired=false`، ۱۶ کتابخانه‌ی بومی |
 | پروفایل محلی | ❌ انجام نشده | بازی هنوز پروفایل را از سرور می‌خواهد |
-| نبرد آفلاین با AI | ❌ انجام نشده | `BotController` در بازی هست ولی مسیر ورود آن پیدا نشد |
+| نبرد آفلاین با AI | 🟡 بیلد آزمایشی ساخته شد | قلاب `StartBattle → LoadBattle(0, null)` → `Arena_1`؛ رفتار داخل آرنا نامشخص |
 | ذخیره‌ی محلی / بکاپ | ❌ انجام نشده | فقط راهنمای `adb backup` |
 | فروشگاه شبیه‌سازی‌شده | ❌ انجام نشده | `fakeBuy` در بازی هست ولی در دسترس نیست |
 | حذف SDKهای شبکه | ❌ انجام نشده | هنوز در APK هستند |
@@ -80,9 +80,16 @@
   `KEY_NO_PLAYER_FOUND` / `KEY_PLAY_WITH_BOT` نشان می‌دهد؛ اکشن واقعی‌اش در callback است.
 - `CustomArena` صحنه‌ی کاملی است ولی `CustomArenaLoader` فقط از `Constants.customArenaID` می‌خواند.
 
-**مسیر پیشنهادی برای M3:** پچ `MenuManager.StartBattle` به‌طوری‌که به‌جای emit رویداد،
-مستقیماً `AskPlayWithBot` (یا `LoadBattle` با `customArenaID`) را صدا بزند — نقطه‌ی پچ
-با `xref.py disasm MenuManager StartBattle` قابل تعیین است.
+**مسیر M3 (پیاده‌سازی‌شده به‌صورت بیلد آزمایشی):** `ConnectionManager.LoadBattle(int roomID, string customArenaID)`
+در `0x14c62d0` قرار دارد، `LoadScene("LoadingScreen")` می‌زند و
+`Constants.NextScene = "Arena_" + (roomID+1)` می‌گذارد؛ `x0` (this) را نمی‌خواند.
+پس یک کُد کِیو سه‌دستوری در بدنه‌ی مرده‌ی `SetupFlow` + یک `b` در ابتدای
+`MenuManager.StartBattle` (`0x15a1868`) ورود به `Arena_1` را بدون سرور ممکن می‌کند
+(بیلد سوم در `docs/04-install-guide.md`).
+
+**نامشخص:** داخل `Arena_1`، `LevelController` با `Constants.LiveMode == true` احتمالاً
+منتظر رویداد حریف می‌ماند. برای نبرد واقعی باید `BotController` فعال شود
+(`LevelController.InitTestMode` / `SimulateBotAction`) — نیازمند مشاهده‌ی لاگ روی دستگاه.
 
 ### ۳.۳. `offlineMode` (حل شد)
 آفست‌ها با `tools/xref.py layout` به‌دست آمد: `ConnectionManager.offlineMode = 0x40`،
