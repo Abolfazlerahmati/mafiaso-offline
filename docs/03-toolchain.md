@@ -291,3 +291,19 @@ data2, hits = set_bool_attribute(data, 'application', 'isSplitRequired', False) 
 - `build.sh` با محیط مجازی از صفر (شامل `pip install`): ۲۷ ثانیه، خروجی ۱۵۷٬۹۶۵٬۷۵۳ بایت، v1 تأیید، v2 OK.
 
 > متغیر محیطی `MAFIASO_NO_OPENSSL=1` فقط برای آزمون مسیر جایگزین است؛ کاربر به آن نیازی ندارد.
+
+---
+
+## ۹. `tools/diagnose.py` — گزارش خودکار از دستگاه
+چون هر پچ فقط روی گوشی قابل تأیید است، حلقه‌ی «نصب → کرش → لاگ» باید ارزان باشد.
+این اسکریپت (فقط stdlib + `adb`):
+
+1. `adb devices` → انتخاب دستگاه؛ `getprop` + `dumpsys package` → مدل، اندروید، ABI، versionCode نصب‌شده؛
+2. `adb logcat -c`، اجرای بازی با `monkey -p … -c LAUNCHER 1`، ضبط `-v threadtime` به مدت `--seconds`؛
+3. پارس خطوط، طبقه‌بندی: کرش Java/بومی (`FATAL EXCEPTION`, `Fatal signal`, `SIGSEGV`) با **پنجره‌ی ۴۵ خط** برای stack trace،
+   `NullReferenceException`، پیام‌های صحنه، تلاش‌های شبکه (دامنه‌های بازی/SDKها)؛
+4. نوشتن `diagnose-<timestamp>.txt` با `[device] [summary] [verdict] [crashes] … [filtered log]`.
+
+حالت بدون گوشی: `--logcat FILE` برای تحلیل یک dump موجود. آزمون با logcat ساختگی (NRE در
+`MainMenu.Awake`، SIGSEGV با backtrace، `FATAL EXCEPTION`، پیام صحنه، خطای شبکه): هر ۵ دسته شناسایی شد.
+

@@ -29,7 +29,7 @@ adb install out/pesarkhande-offline-arm64.apk
 | [`docs/03-toolchain.md`](docs/03-toolchain.md) | ابزارهای IL2CPP و امضای APK (M1) |
 | [`docs/04-install-guide.md`](docs/04-install-guide.md) | ساخت، نصب، تست، بکاپ |
 | [`docs/05-feature-report.md`](docs/05-feature-report.md) | قابلیت‌ها و محدودیت‌ها |
-| [`tools/`](tools/) | `il2cpp.py` (پارسر)، `apk.py` (بازسازی/امضا)، `axml.py` (manifest)، `patch.py` (پچ + build) |
+| [`tools/`](tools/) | `il2cpp.py` (پارسر)، `apk.py` (بازسازی/امضا)، `axml.py` (manifest)، `patch.py` (پچ + build)، `diagnose.py` (گزارش کرش از گوشی) |
 
 ## وضعیت
 
