@@ -8,9 +8,7 @@
 ```bash
 git clone https://github.com/Abolfazlerahmati/mafiaso-offline.git
 cd mafiaso-offline
-git fetch origin refs/tags/apk-parts:refs/tags/apk-parts --force
-mkdir -p original && git archive --format=tar refs/tags/apk-parts | tar -x -C original
-rm -f original/part-* original/set.tar
+./get-apks.sh        # دو فایل اصلی را می‌گیرد و در original/ می‌گذارد
 ./build-all.sh
 ```
 
@@ -46,27 +44,72 @@ cd mafiaso-offline
 
 ## ۲. دو فایل APK اصلی بازی را بگیر
 
-این دو فایل در Git **نیستند** (حق نشر + حجم). سه راه داری — اولی ساده‌ترین است.
+این دو فایل در Git **نیستند** (حق نشر + حجم). در عوض در تگ `apk-parts` به‌صورت
+**دو تکه** نگه‌داری می‌شوند، چون GitHub فایل‌های بالای ۱۰۰ مگ را قبول نمی‌کند:
 
-### راه A — از تگ `apk-parts` روی GitHub (بدون نیاز به کافه‌بازار)
+```
+part-00 + part-01  →  set.tar  →  base.apk + split_0.apk
+```
+
+### راه A — پیشنهادی: یک دستور
 
 ```bash
-git fetch origin refs/tags/apk-parts:refs/tags/apk-parts --force
-mkdir -p original
-git archive --format=tar refs/tags/apk-parts | tar -x -C original
-rm -f original/part-* original/set.tar     # فایل‌های میانی مال workflow هستند
-ls -l original
+./get-apks.sh
 ```
 
-باید این دو فایل را ببینی:
+خروجی سالم:
 
 ```
-base.apk        129,977,246 بایت
-split_0.apk      27,993,663 بایت
+== 1/4 looking for existing files in original/ ==
+== 2/4 fetching tag 'apk-parts' ==
+   route: git fetch + git archive          (یا: tarball from codeload.github.com)
+== 3/4 reassembling ==
+   concatenating part-00 + part-01 -> set.tar
+== 4/4 verifying hashes ==
+   -rw-r--r-- 1 user user 129977246 ... original/base.apk
+   -rw-r--r-- 1 user user  27993663 ... original/split_0.apk
+   OK — both files match 3.4.2
 ```
 
-> `base.apk` و `split_0.apk` همان دو فایل اصلی‌اند؛ فقط اسم‌شان کوتاه است.
-> اسکریپت build هر دو نام (با `arm64` یا بدون آن) را می‌شناسد.
+اسکریپت سه راه را به‌ترتیب امتحان می‌کند: فایل‌های موجود در `original/`، تگ git،
+و در نهایت دانلود tarball از `codeload.github.com` (بدون نیاز به git). ویندوز: `get-apks.cmd`.
+
+> ⚠️ **نکته‌ی مهم:** اگر فقط `git fetch` + `git archive` بزنی، در پوشه **فقط**
+> `part-00` و `part-01` می‌بینی — `base.apk` نیست. باید دو تکه را به هم بچسبانی:
+> ```bash
+> cat part-00 part-01 > set.tar && tar -xf set.tar
+> ```
+
+### راه B — از روی گوشی (اگر بازی از کافه‌بازار نصب است)
+
+```bash
+adb shell pm path com.paeezanstudio.pesarkhande
+# package:/data/app/~~xxxx/…/base.apk
+# package:/data/app/~~xxxx/…/split_config.arm64_v8a.apk
+adb pull <مسیر-base>   original/base.apk
+adb pull <مسیر-split>  original/split_0.apk
+```
+
+### راه C — از سایت‌های میرور
+
+APKPure/APKMirror نسخه‌ی **XAPK** دارند. XAPK در واقع ZIP است؛ از داخلش
+`base.apk` و `split_config.arm64_v8a.apk` را بیرون بیاور و در `original/` بگذار.
+حتماً نسخه **3.4.2** با `versionCode 3420004`.
+
+### بررسی درستی (مهم)
+
+```bash
+sha256sum original/*.apk                      # Linux / macOS
+certutil -hashfile original\base.apk SHA256  # Windows
+```
+
+| فایل | SHA-256 |
+|------|---------|
+| `base.apk` | `94a9beca7ae0025062bb1f5ed76541e8a7d1df41054cc491b1b9f5325d67643b` |
+| `split_0.apk` | `e47f734399c489d92b65270a141603e80eb956fac1a086d6c3e4b29370` |
+
+اگر نخواند، نسخه‌ی دیگری گرفته‌ای. نگران نباش: پچ با «جستجوی رشته» انجام می‌شود،
+پس اگر نسخه اشتباه باشد build **با خطا متوقف می‌شود** (`literal not found`) و خروجی خراب نمی‌دهد.
 
 ### راه B — از روی گوشی (اگر بازی از کافه‌بازار نصب است)
 

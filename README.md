@@ -12,11 +12,18 @@
 
 
 ```bash
-# 1) فایل‌های اصلی را در original/ بگذارید (راهنما: docs/04-install-guide.md)
-# 2) بسازید  (ویندوز: build.cmd)
-./build.sh            # واریانت A — فقط ریدایرکت رشته
-./build-all.sh        # هر پنج واریانت (A..E) — برای تست روی گوشی
-# 3) نصب
+# 1) ریپو را بگیرید و وارد آن شوید
+git clone https://github.com/Abolfazlerahmati/mafiaso-offline.git
+cd mafiaso-offline
+
+# 2) دو فایل اصلی بازی را بگیرید (از تگ apk-parts)
+./get-apks.sh          # ویندوز: get-apks.cmd
+
+# 3) بسازید
+./build-all.sh         # هر پنج واریانت (A..E) — یا فقط A: ./build.sh
+                       # ویندوز: build.cmd (فقط A)
+
+# 4) نصب
 adb install out/pesarkhande-offline-arm64.apk
 ```
 
