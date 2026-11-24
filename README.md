@@ -29,10 +29,12 @@ adb install out/pesarkhande-offline-arm64.apk
 | [`docs/03-toolchain.md`](docs/03-toolchain.md) | ابزارهای IL2CPP و امضای APK (M1) |
 | [`docs/04-install-guide.md`](docs/04-install-guide.md) | ساخت، نصب، تست، بکاپ |
 | [`docs/05-feature-report.md`](docs/05-feature-report.md) | قابلیت‌ها و محدودیت‌ها |
-| [`tools/`](tools/) | `il2cpp.py` (پارسر)، `apk.py` (بازسازی/امضا)، `axml.py` (manifest)، `patch.py` (پچ + build)، `diagnose.py` (گزارش کرش از گوشی) |
+| [`tools/`](tools/) | `il2cpp.py` (پارسر)، `xref.py` (ارجاع استاتیک + دیس‌اسمبل)، `apk.py` (بازسازی/امضا)، `axml.py` (manifest)، `patch.py` (پچ + build)، `diagnose.py` (گزارش کرش از گوشی) |
 
 ## وضعیت
 
 زنجیره‌ی ابزار کامل است و یک APK تکی (base + ۱۶ کتابخانه‌ی بومی، امضای v1/v2/v3)
-ساخته می‌شود. **بازی هنوز آفلاین قابل بازی نیست** — برای جزئیات و نقشه‌ی ادامه‌ی کار
+ساخته می‌شود. برای رد شدن از صفحه‌ی اتصال دو واریانت پچ بوت وجود دارد
+(داده‌محور و کد بومی) — هر دو **آزمون‌نشده‌اند** و باید روی گوشی تأیید شوند.
+**بازی هنوز آفلاین قابل بازی نیست** — برای جزئیات و نقشه‌ی ادامه‌ی کار
 به [`docs/05-feature-report.md`](docs/05-feature-report.md) مراجعه کنید.

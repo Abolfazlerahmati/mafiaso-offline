@@ -6,6 +6,12 @@
 #   ./build.sh                       # uses original/*.apk, output in out/
 #   ./build.sh BASE.apk SPLIT.apk    # explicit inputs
 #   ./build.sh --pair                # emit base+split instead of a single APK
+#   BRANCH="0x14c00a8=0x14c6498" NO_RENAME=1 OUT=out-native ./build.sh
+#                                    # native-code variant: keep the login scene
+#                                    # but branch ConnectionManager.SetupFlow
+#                                    # straight to LoadMainMenu
+#   RENAME="A=B" ./build.sh        # a different literal redirect (default:
+#                                    # ConnectionScreen=MainMenu)
 #
 # Requirements: python3 (3.9+) and internet access to PyPI on the first run
 # (installs the single dependency, `cryptography`). The `openssl` CLI is
@@ -58,11 +64,23 @@ fi
 echo "[deps] ok ($("$PY" -c 'import cryptography;print("cryptography", cryptography.__version__)'))"
 mkdir -p "$OUT"
 
+# literal redirect (data-only patch). NO_RENAME=1 disables it, RENAME=... replaces it.
+RENAME="${RENAME-ConnectionScreen=MainMenu}"
+RENAME_ARGS=""
+if [[ -z "${NO_RENAME:-}" ]]; then
+  for spec in ${RENAME:-}; do RENAME_ARGS="$RENAME_ARGS --rename $spec"; done
+fi
+
+# optional native-code patches, e.g. BRANCH="0x14c00a8=0x14c6498"
+BRANCH_ARGS=""
+for spec in ${BRANCH:-}; do BRANCH_ARGS="$BRANCH_ARGS --branch $spec"; done
+
 "$PY" tools/patch.py build \
   --base "$BASE" \
   --split "$SPLIT" \
   $MODE \
-  --rename ConnectionScreen=MainMenu \
+  $RENAME_ARGS \
+  $BRANCH_ARGS \
   --key keys/release.key.pem \
   --cert keys/release.cert.pem \
   --out "$OUT"

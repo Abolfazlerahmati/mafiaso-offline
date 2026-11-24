@@ -3,6 +3,8 @@ rem build.cmd - one-command build of the offline APK on Windows (no WSL needed).
 rem
 rem   build.cmd                       (uses original\*.apk, output in out\)
 rem   build.cmd BASE.apk SPLIT.apk    (explicit inputs)
+rem   set BRANCH=0x14c00a8=0x14c6498
+rem   set NO_RENAME=1 & set OUT=out-native & build.cmd   (native-code variant)
 rem
 rem Requirements: Python 3.9+ (https://www.python.org/downloads/, tick "Add to
 rem PATH") and internet access on the first run (installs `cryptography`).
@@ -55,7 +57,11 @@ echo [deps] ok
 
 if not exist "%OUT%" mkdir "%OUT%"
 
-"%PY%" tools\patch.py build --base "%BASE%" --split "%SPLIT%" %MODE% --rename ConnectionScreen=MainMenu --key keys\release.key.pem --cert keys\release.cert.pem --out "%OUT%" || goto :error
+set "RENAME_ARGS=--rename ConnectionScreen=MainMenu"
+if defined NO_RENAME set "RENAME_ARGS="
+set "BRANCH_ARGS="
+if defined BRANCH set "BRANCH_ARGS=--branch %BRANCH%"
+"%PY%" tools\patch.py build --base "%BASE%" --split "%SPLIT%" %MODE% %RENAME_ARGS% %BRANCH_ARGS% --key keys\release.key.pem --cert keys\release.cert.pem --out "%OUT%" || goto :error
 
 echo.
 echo Build finished -^> %OUT%\pesarkhande-offline-arm64.apk

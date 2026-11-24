@@ -4,4 +4,5 @@ cryptography>=41
 
 # Optional — analysis only, not needed for the build:
 #   pip install UnityPy capstone androguard
-# (tools/il2cpp.py disasm, UnityPy asset extraction, androguard manifest/APK inspection)
+# (tools/xref.py needs capstone; tools/il2cpp.py disasm, UnityPy asset extraction,
+#  androguard manifest/APK inspection)

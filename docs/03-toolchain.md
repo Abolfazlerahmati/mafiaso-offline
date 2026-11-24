@@ -149,9 +149,10 @@ v2 crypto check  : True — v2 OK (algo 0x101, subject=O=Personal Build,CN=mafia
 
 ## ۵. گام بعدی (M2 — بوت آفلاین)
 
-1. تعیین دقیق آفست فیلدهای `ConnectionManager` (از کد یا `Il2CppMetadataRegistration`).
-2. پیدا کردن محل خواندن `offlineMode` و مسیر `SetupFlow → LoadMainMenu`.
-3. پچ حداقلی + بازسازی + امضا + تست روی دستگاه.
+1. ✅ تعیین آفست فیلدهای `ConnectionManager` — با `tools/xref.py layout` (بخش ۱۰).
+2. ✅ پیدا کردن مسیر `SetupFlow → LoadMainMenu` و محل خواندن/نوشتن `offlineMode`.
+3. ✅ پچ حداقلی (دو واریانت: داده و کد بومی) + بازسازی + امضا.
+4. ⏳ تست روی دستگاه — تنها گامی که در سندباکس ممکن نیست.
 
 ---
 
@@ -162,7 +163,7 @@ v2 crypto check  : True — v2 OK (algo 0x101, subject=O=Personal Build,CN=mafia
 | اجرای بازی در سندباکس | ❌ ممکن نیست |
 | تست نصب | ❌ فقط روی دستگاه کاربر |
 | پارسر v2 androguard | ⚠️ محدودیت خود کتابخانه (نه امضا) |
-| فیلد آفست‌ها | ⚠️ از metadata v31 قابل استخراج نیست؛ باید از کد استنباط شود |
+| فیلد آفست‌ها | ✅ با `tools/xref.py layout` (استنباط از کد + `Il2CppMetadataRegistration`) |
 
 ---
 
@@ -212,7 +213,7 @@ verifying:
 بازبینی مستقیم متادیتای خروجی: `#4451 = 'MainMenu'` ✓ و هر دو APK با `unzip -t` سالم‌اند.
 
 ### ۷.۴. محدودیت‌های پچ
-- **`offlineMode` پیدا نشد:** در IL2CPP v31 آفست فیلدها در زمان اجرا محاسبه می‌شود و در متادیتا نیست؛ جدول آفست‌های موجود در `.rodata` هم با ایندکس فیلدهای متادیتا هم‌خوان نبود. هیچ متدی در `ConnectionManager` هم بولی را در آفست‌های طبیعی (0x30..0x33) نمی‌خواند. بنابراین «true کردن offlineMode» بدون تحلیل بیشتر عملی نیست.
+- **`offlineMode`** (به‌روزرسانی): آفست‌ها با `tools/xref.py layout` حل شد — `ConnectionManager.offlineMode = 0x40`، `Constants.OfflineMode = 0x1b0`. نتیجه: این فلگ فقط از `ConnectToServer` (خواندن `ZPlayerPrefs.lastOfflineToggle`) و `..cctor` نوشته می‌شود، پس در بوت مستقیم به منو `false` می‌ماند؛ اما خودِ بازی در `MenuManager.TurnMenuListenersOn` مسیر جایگزین دارد: اگر `SocketIOComponent.Instance == null` باشد، `Constants.OfflineMode = true` می‌شود (بخش ۱۰.۴).
 - **راه‌جانشین:** تغییر نام صحنه (این پچ) یا **کنسول تستری** (سوایپ از لبه‌ی بالا).
 - این پچ فقط **مسیر بوت** را عوض می‌کند؛ پروفایل بازیکن هنوز از سرور می‌آید. اگر منو بدون پروفایل کرش کرد، مرحله‌ی بعدی ساخت پروفایل محلی است.
 
@@ -307,3 +308,93 @@ data2, hits = set_bool_attribute(data, 'application', 'isSplitRequired', False) 
 حالت بدون گوشی: `--logcat FILE` برای تحلیل یک dump موجود. آزمون با logcat ساختگی (NRE در
 `MainMenu.Awake`، SIGSEGV با backtrace، `FATAL EXCEPTION`، پیام صحنه، خطای شبکه): هر ۵ دسته شناسایی شد.
 
+---
+
+## ۱۰. `tools/xref.py` — دیتابیس ارجاع استاتیک + دیس‌اسمبل حاشیه‌نویسی‌شده
+
+`il2cpp.py` می‌گوید «چه چیزی در متادیتا هست»؛ `xref.py` می‌گوید «چه چیزی چه چیزی را
+صدا می‌زند/می‌خواند». برای پچ کردن بدون سورس، این است که مسیر را قابل استدلال می‌کند.
+
+### ۱۰.۱. اجزا
+
+| جزء | کار |
+|------|-----|
+| `Registration` | پیدا کردن `Il2CppMetadataRegistration` با اسکن (شرط: `typesCount == fieldOffsetsCount`)؛ در این بیلد در `0x2ad1528` |
+| `Modules` | پیمایش آرایه‌ی `Il2CppCodeGenModule`ها → نگاشت «آدرس → متد» + اندازه‌ی هر متد؛ ۱۲۵ ماژول، `Assembly-CSharp` با ۲۴٬۶۹۶ متد از `0x2c80788` |
+| `Layout` | آفست فیلدهای **استاتیک و اینستنس** هر نوع، استنباط‌شده از خودِ کد (`str/ldr` روی `static_fields` و `this`) + ثبت‌های metadata |
+| `Xref` | دیکد هندل‌های metadata-usage (`(kind<<29)\|(index<<1)\|1`)، اسکن GOT slotها، هدف‌های `bl`، عملوندهای حافظه، و برچسب‌گذاری **خواندن/نوشتن** هر فیلد |
+| کش | `work/xref-<module>.pkl`؛ ساخت مجدد < ۱ ثانیه |
+
+### ۱۰.۲. دستورها
+
+```bash
+python tools/xref.py layout ConnectionManager          # آفست فیلدها
+python tools/xref.py method ConnectionManager SetupFlow # امضا + آدرس + اندازه
+python tools/xref.py disasm ConnectionManager LoadMainMenu
+python tools/xref.py type PlayerProfile [--no-mem]
+python tools/xref.py callers ConnectionManager.LoadMainMenu
+python tools/xref.py uses --field Constants.OfflineMode [--writes]
+python tools/xref.py uses --literal ConnectionScreen
+python tools/xref.py uses --call SceneManager.LoadScene
+python tools/xref.py find "Swipe"
+```
+
+### ۱۰.۳. نمونه‌ی خروجی واقعی
+
+```
+$ python tools/xref.py uses --field Constants.OfflineMode
+  MenuManager.TurnMenuListenersOn @ 0x159ba1c  [w]
+  ConnectionManager.ConnectToServer @ 0x14c1b5c  [w]
+  SaveSystem.GetInt @ 0x172e910  [r]
+  ...
+
+$ python tools/xref.py disasm ConnectionManager LoadMainMenu
+  0x0014c6518  ldr  x0, [x21]      ; load 'LoadingScreen'
+  0x0014c651c  bl   #0x270ff70     ; UnityEngine.SceneManagement.SceneManager.LoadScene
+  0x0014c6530  ldr  x0, [x19]      ; load 'MainMenu'
+  0x0014c6540  b    #0x170b124     ; Constants.set_NextScene
+```
+
+برچسب فیلدها در دیس‌اسمبل از `Layout` می‌آید؛ بدون آن، آفست‌ها ۸ بایت شیفت نشان داده
+می‌شدند (باگ واقعی که در این نسخه رفع شد: `offlineMode` به‌جای `fakeBuy` چاپ می‌شد).
+
+### ۱۰.۴. یافته‌های کلیدی که با این ابزار به‌دست آمد
+
+- **`LoadMainMenu`** = `LoadScene("LoadingScreen")` سپس `Constants.NextScene = "MainMenu"`؛
+  `LoadingScreen.LoadLevel` هم `LoadSceneAsync(Constants.NextScene)` را صدا می‌زند
+  → پچ رشته‌ی `ConnectionScreen→MainMenu` دقیقاً روی همین مسیر اثر می‌گذارد.
+- **`MenuManager.Awake`** همیشه `Constants.LiveMode = true` می‌کند و `TurnMenuListenersOn` را صدا می‌زند.
+- **`MenuManager.TurnMenuListenersOn`** ~۱۵ رویداد Socket.IO را register می‌کند؛ اگر
+  `SocketIOComponent.Instance == null` باشد، به‌جای آن **`Constants.OfflineMode = true`** می‌نویسد
+  (آدرس `0x159c400`). یعنی «منو بدون سوکت» حالتی است که خودِ بازی پیش‌بینی کرده است.
+- **`Constants.OfflineMode`** فقط دو نویسنده دارد: `ConnectToServer` و `..cctor` (هر دو `false`).
+  خواننده‌ها: `SaveSystem.*`، `InformationAsset.LoadArenas`، `DraftModeManager/RandomModeManager.Update`،
+  `MenuManager.CancelBattle`، `PiggyBankV2ButtonHandler`، `Constants.get_isTutorial`.
+- **`PlayerProfile`** همه‌اش استاتیک است (۱۸۰ فیلد، صفر اینستنس) و فقط از
+  `ConnectionManager.SetProfileData → PlayerProfile.SetPlayerProfile(json)` پر می‌شود
+  → در بوت آفلاین، منو با پروفایل خالی (`..cctor`) بالا می‌آید. این مهم‌ترین ریسک باقی‌مانده است.
+- **ابزار تستری**: `TesterToolUnlockManager`, `TesterToolSwipeDetector`, `TesterToolsManager`,
+  `TesterHeroUnlocker`, `TesterChestAdder`, `TesterSkinUnlocker`, `TestersCustomProfileManager` —
+  سوایپ از لبه‌ی بالا در صحنه‌ی اتصال (M0).
+
+### ۱۰.۵. `--branch` — پچ کد بومی (AArch64) در `patch.py`
+
+برای زمانی که پچ داده کافی نیست:
+
+```bash
+python tools/patch.py build --base … --split … --single \
+  --branch 0x14c00a8=0x14c6498 --out out-native/
+```
+
+پیاده‌سازی: سگمنت‌های `PT_LOAD` از هدر ELF خوانده می‌شود (`vaddr → file offset`)، دستور
+`b`/`bl` با برد ±۱۲۸ مگابایت encode می‌شود، بایت‌های اصلی قبل از نوشتن چک می‌شوند، و
+دستور نوشته‌شده دوباره decode می‌شود تا هدف تأیید شود. نتیجه در
+`assets/pesarkhande-offline/patches.json` داخل خودِ APK ثبت می‌شود:
+
+```json
+{ "site": "0x14c00a8", "target": "0x14c6498",
+  "before": "ffc303d1", "after": "fc180014", "instruction": "b" }
+```
+
+راستی‌آزمایی روی خروجی واقعی: در `out-native/…apk` دقیقاً **یک** بلوک ۴ کیلوبایتی از
+`libil2cpp.so` با نسخه‌ی اصلی فرق دارد و بایت‌های `0x14c00a8` به `b 0x14c6498` دیکد می‌شوند.

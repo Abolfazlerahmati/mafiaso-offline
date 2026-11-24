@@ -1,6 +1,6 @@
 # وضعیت پروژه — Mafiaso Offline (پسرخوانده)
 
-> آخرین به‌روزرسانی: 2026-11-24 — تحویل M2 برای build توسط کاربر
+> آخرین به‌روزرسانی: 2026-11-24 — M2: دو واریانت پچ بوت ساخته و راستی‌آزمایی شد
 > برنچ: `arena/95d7dd6d-mafiaso-offline` (پایه: `b6c9423`)
 > گزارش فنی مرحله ۱: [`docs/01-technical-report.md`](docs/01-technical-report.md)
 > طراحی معماری مرحله ۲: [`docs/02-architecture.md`](docs/02-architecture.md)
@@ -10,7 +10,7 @@
 
 | مورد | وضعیت |
 |------|--------|
-| مرحله فعلی | **۳ — M1 انجام شد؛ M2 (بوت آفلاین) پچ ساخته شد، منتظر تست دستگاه** |
+| مرحله فعلی | **۳ — M1 ✅؛ M2 (بوت آفلاین) دو واریانت ساخته شد، منتظر تست دستگاه** |
 | فاز ۱ (تحلیل) | ✅ [`docs/01-technical-report.md`](docs/01-technical-report.md) |
 | فاز ۲ (معماری) | ✅ [`docs/02-architecture.md`](docs/02-architecture.md) |
 | تغییرات اعمال‌شده روی بازی | **هیچ** (فقط تحلیل؛ هیچ فایلی از بازی تغییر نکرده) |
@@ -60,6 +60,8 @@
 - `ConnectionScreen.offlineMode` / `skipTut` / `fakeBuy` / `disableSSL` / `versionText` / `customProfileManager`
 - رشته‌های `DEBUG MODE INFO ►` و `ENABLE_DEBUG_MODE`
 - `LevelController.InitTestMode` / `SimulateBotAction` / `TestDraft` / `TestRandom` / `TestSwitchTurn` / `SyncTest`
+- **`MenuManager.TurnMenuListenersOn`**: اگر `SocketIOComponent.Instance == null` باشد، خودِ بازی `Constants.OfflineMode = true` می‌کند (آدرس `0x159c400`) → «منو بدون سوکت» حالت پیش‌بینی‌شده‌ی خودِ بازی است
+- `Constants.OfflineMode` فقط از `ConnectToServer` و `..cctor` نوشته می‌شود (هر دو `false`)؛ `ConnectionManager.offlineMode` فقط در `ConnectToServer` خوانده می‌شود
 - `BotController` با `MainRoutine`, `StartTurn`, `GetTurnDuration`, `difficulty`, `GetAllEnemyPossibleActions`
 - صحنه `CustomArena` (level18) شامل `LevelController`, `PlayerController`, `TurnInfo`, `DraftModeManager`, `RandomModeManager` → صحنه نبرد کامل
 
@@ -118,7 +120,7 @@
 |---|-----------|-------|
 | M0 | آزمون سوایپ از لبه بالا (ابزار تستری داخلی) | ⏳ منتظر تست کاربر روی دستگاه |
 | M1 | زنجیره ابزار | ✅ انجام شد — [`docs/03-toolchain.md`](docs/03-toolchain.md) |
-| M2 | بوت آفلاین | 🟡 پچ `ConnectionScreen→MainMenu` ساخته و امضا شد؛ APK تکی با `build.sh`/`build.cmd` (فقط وابستگی: `cryptography`) — **منتظر تست روی دستگاه** ([راهنما](docs/04-install-guide.md)) |
+| M2 | بوت آفلاین | 🟡 **دو واریانت** ساخته و امضا شد (A: پچ داده `ConnectionScreen→MainMenu`، B: پچ بومی `SetupFlow→LoadMainMenu` @ `0x14c00a8`→`0x14c6498`) — **منتظر تست روی دستگاه** ([راهنما](docs/04-install-guide.md)) |
 | M3 | نبرد آفلاین با AI | ⏸️ |
 | M4 | ذخیره محلی + بکاپ | ⏸️ راهنمای `adb backup` مستند شد |
 | M5 | فروشگاه شبیه‌سازی‌شده | ⏸️ |
@@ -128,7 +130,8 @@
 
 - `tools/il2cpp.py` — پارس metadata v31 (۱۶٬۶۲۷ نوع، ۱۱۰٬۳۳۹ متد، ۷۳٬۳۳۲ فیلد) + حل relocation + یافتن `Il2CppCodeGenModule` + دیس‌اسمبل ARM64.
 - `tools/apk.py` — بازسازی ZIP با ترازبندی، امضای v1+v2+v3، راستی‌آزمایی رمزنگاری (نتیجه: `v2 crypto check: True`).
-- `tools/patch.py` — پچ رشته‌های متادیتا + بازسازی و امضای base/split؛ خروجی آزمایشی: `ConnectionScreen → MainMenu`.
+- `tools/patch.py` — پچ رشته‌های متادیتا، پچ کد بومی (`--branch`)، ادغام base+split، بازسازی و امضای v1+v2+v3؛ منیفست تغییرات داخل APK.
+- `tools/xref.py` — دیتابیس ارجاع استاتیک: ۱۲۵ ماژول، آفست فیلدهای استاتیک/اینستنس، خواندن/نوشتن فیلدها، `callers`/`uses`/`disasm` حاشیه‌نویسی‌شده. با آن مسیر `SetupFlow → LoadMainMenu` و نقش `Constants.OfflineMode` تعیین شد.
 - یافته‌ی کلیدی: کلاس‌های `ConnectionManager`، `DebugConnectionMenu`، `TesterToolUnlockManager`، `TesterToolSwipeDetector`، `TesterToolsManager` با آدرس‌های بومی. **سوایپ از لبه‌ی بالای صفحه** ابزار تستری را باز می‌کند (نامزد M0).
 
 ## ۱۰. یادآوری‌های عملیاتی

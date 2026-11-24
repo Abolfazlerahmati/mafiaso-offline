@@ -99,13 +99,42 @@ out/pesarkhande-offline-arm64.apk
 OUT=/tmp/build ./build.sh         # پوشه‌ی خروجی دلخواه
 ```
 
+### دو واریانت M2 — کدام را نصب کنم؟
+
+هر دو خروجی یک نام و یک پکیج دارند و **روی هم نصب می‌شوند** (فقط یکی را هر بار نگه دارید).
+
+| | واریانت A — «ریدایرکت داده» (پیش‌فرض) | واریانت B — «پچ کد بومی» |
+|---|---|---|
+| دستور | `./build.sh` | `BRANCH="0x14c00a8=0x14c6498" NO_RENAME=1 OUT=out-native ./build.sh` |
+| چه تغییری می‌کند | literal رشته‌ای `ConnectionScreen` در `global-metadata.dat` → `MainMenu` | یک دستور `b` در `libil2cpp.so` که `ConnectionManager.SetupFlow` را به `LoadMainMenu` می‌برد |
+| صحنه‌ی اتصال | هرگز لود نمی‌شود | لود می‌شود ولی بلافاصله به منو می‌رود (بدون صفحه‌ی لاگین) |
+| دست‌زدن به کد بازی | ❌ هیچ (فقط داده) | ✅ ۴ بایت، با ثبت بایت‌های اصلی |
+| ریسک | منو بدون `ConnectionManager` بالا می‌آید | `ConnectionManager` ساخته می‌شود ولی `Init`/`ConnectToServer` اجرا نمی‌شود |
+
+**پیشنهاد:** اول **A** را تست کنید (ساده‌تر و قابل‌برگشت‌تر). اگر منو بالا نیامد یا کرش کرد،
+**B** را تست کنید و نتیجه‌ی هر دو را بگویید — تفاوت رفتارشان دقیقاً می‌گوگوید مشکل کجاست.
+
+خروجی واریانت B در `out-native/pesarkhande-offline-arm64.apk` است. در ویندوز:
+`set BRANCH=0x14c00a8=0x14c6498` و `set NO_RENAME=1` و `set OUT=out-native` و بعد `build.cmd`.
+
+هر دو واریانت فایل `assets/pesarkhande-offline/patches.json` را داخل APK می‌گذارند؛
+فهرست کامل تغییرات (رشته‌ها، آدرس‌ها، بایت‌های قبل/بعد) آنجاست — هم برای بازگشت و هم برای بازرسی.
+
 ### اجرای دستی (بدون اسکریپت)
 ```bash
 python3 -m pip install -r requirements.txt
+
+# واریانت A — ریدایرکت داده
 python3 tools/patch.py build \
   --base original/pesarkhande-3.4.2-base.apk \
   --split original/pesarkhande-3.4.2-split_config.arm64_v8a.apk \
   --single --rename ConnectionScreen=MainMenu --out out/
+
+# واریانت B — پچ کد بومی (بدون ریدایرکت رشته)
+python3 tools/patch.py build \
+  --base original/pesarkhande-3.4.2-base.apk \
+  --split original/pesarkhande-3.4.2-split_config.arm64_v8a.apk \
+  --single --branch 0x14c00a8=0x14c6498 --out out-native/
 ```
 
 ### اجرای کامل در سندباکس (برای مقایسه)
@@ -147,7 +176,7 @@ adb uninstall com.paeezanstudio.pesarkhande
 | # | آزمون | انتظار |
 |---|-------|--------|
 | T1 | نصب بدون خطا | `Success` |
-| T2 | باز کردن برنامه | لوگو → لودینگ → **منوی اصلی** (بدون صفحه‌ی اتصال) |
+| T2 | باز کردن برنامه | لوگو → لودینگ → **منوی اصلی** (بدون صفحه‌ی اتصال؛ در واریانت B یک لحظه صحنه‌ی اتصال دیده می‌شود و بعد منو) |
 | T3 | حالت هواپیما | منو بالا بیاید، هیچ درخواست شبکه‌ای نرود |
 | T4 | ری‌استارت برنامه | منو دوباره بالا بیاید |
 | T5 | ورود به نبرد | آیا نبرد شروع می‌شود؟ (احتمالاً خیر — ببینید چه پیامی می‌دهد) |

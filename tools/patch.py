@@ -10,6 +10,11 @@ Currently implemented (all data-only, no native code is modified):
 * ``--single`` — merge the base APK with the arm64 native libraries of the
   config split and flip ``android:isSplitRequired`` to ``false`` in the binary
   manifest, producing one standalone APK that installs with plain ``adb install``.
+* ``--branch SITE=TARGET`` — write an AArch64 ``b`` instruction at a virtual
+  address inside ``libil2cpp.so``. This is a *code* patch: it redirects an
+  existing method to another one without touching metadata. The original four
+  bytes are recorded in ``assets/pesarkhande-offline/patches.json`` so the
+  change stays auditable and reversible.
 
 Example — skip the login screen and boot straight into the main menu, as one
 standalone APK::
@@ -37,7 +42,7 @@ import argparse
 import os
 import struct
 import sys
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -46,6 +51,8 @@ from il2cpp import DEFAULT_METADATA, parse_header  # noqa: E402
 from axml import set_bool_attribute  # noqa: E402
 
 METADATA_ENTRY = "assets/bin/Data/Managed/Metadata/global-metadata.dat"
+LIBIL2CPP = "lib/arm64-v8a/libil2cpp.so"
+MANIFEST_ENTRY = "assets/pesarkhande-offline/patches.json"
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +95,113 @@ def patch_literal(data: bytearray, old: str, new: str, verbose: bool = True) -> 
 
 
 # ---------------------------------------------------------------------------
+# native code patching (AArch64)
+# ---------------------------------------------------------------------------
+
+
+def _elf_loads(data: bytes) -> List[Tuple[int, int, int]]:
+    """PT_LOAD segments of an ELF64 image as ``(vaddr, filesz, file offset)``."""
+    if data[:4] != b"\x7fELF" or data[4] != 2:
+        raise SystemExit("not a 64-bit ELF image")
+    (e_phoff,) = struct.unpack_from("<Q", data, 0x20)
+    e_phentsize, e_phnum = struct.unpack_from("<HH", data, 0x36)
+    loads: List[Tuple[int, int, int]] = []
+    for i in range(e_phnum):
+        p_type, _flags, p_offset, p_vaddr, _paddr, p_filesz, _memsz = struct.unpack_from(
+            "<IIQQQQQ", data, e_phoff + i * e_phentsize
+        )
+        if p_type == 1:  # PT_LOAD
+            loads.append((p_vaddr, p_filesz, p_offset))
+    return loads
+
+
+def vaddr_to_offset(data: bytes, vaddr: int) -> int:
+    """File offset of a virtual address inside an ELF64 image."""
+    for vaddr0, filesz, offset in _elf_loads(data):
+        if vaddr0 <= vaddr < vaddr0 + filesz:
+            return offset + (vaddr - vaddr0)
+    raise SystemExit(f"virtual address {vaddr:#x} is not inside any PT_LOAD segment")
+
+
+def encode_branch(site: int, target: int, link: bool = False) -> bytes:
+    """Encode an AArch64 ``b``/``bl`` (reach: +/-128 MiB, 4-byte aligned)."""
+    delta = target - site
+    if delta % 4:
+        raise SystemExit(f"branch {site:#x} -> {target:#x} is not 4-byte aligned")
+    imm = delta >> 2
+    if not (-(1 << 25) <= imm < (1 << 25)):
+        raise SystemExit(f"branch {site:#x} -> {target:#x} exceeds the +/-128 MiB reach")
+    word = (0x94000000 if link else 0x14000000) | (imm & 0x3FFFFFF)
+    return struct.pack("<I", word)
+
+
+def decode_branch(word: int, site: int) -> Tuple[bool, int]:
+    """Inverse of :func:`encode_branch` — returns ``(is_bl, target)``."""
+    imm = word & 0x3FFFFFF
+    if imm & (1 << 25):
+        imm -= 1 << 26
+    return (bool(word >> 31), site + (imm << 2))
+
+
+def patch_native(
+    so: bytes,
+    branches: Sequence[str],
+    expects: Optional[Dict[int, bytes]] = None,
+    verbose: bool = True,
+) -> Tuple[bytes, List[dict]]:
+    """Apply ``SITE=TARGET`` branches to an ELF image; returns (image, records)."""
+    out = bytearray(so)
+    records: List[dict] = []
+    for spec in branches:
+        site_s, _, target_s = spec.partition("=")
+        site, target = int(site_s, 0), int(target_s, 0)
+        off = vaddr_to_offset(out, site)
+        old = bytes(out[off : off + 4])
+        want = (expects or {}).get(site)
+        if want is not None and old != want:
+            raise SystemExit(
+                f"{site:#x}: expected {want.hex()} but found {old.hex()} — "
+                "the library does not match the analysed build"
+            )
+        new = encode_branch(site, target)
+        out[off : off + 4] = new
+        is_bl, back = decode_branch(struct.unpack("<I", new)[0], site)
+        if back != target or is_bl:
+            raise SystemExit(f"{site:#x}: branch did not encode back to {target:#x}")
+        records.append(
+            {
+                "site": f"{site:#x}",
+                "target": f"{target:#x}",
+                "before": old.hex(),
+                "after": new.hex(),
+                "instruction": "b" + ("l" if is_bl else ""),
+            }
+        )
+        if verbose:
+            print(f"  {site:#x}: {old.hex()} -> {new.hex()}  (b {target:#x})")
+    return bytes(out), records
+
+
+def build_manifest(renames: Sequence[str], native: Sequence[dict]) -> bytes:
+    """Small JSON audit trail embedded in the APK next to the patched data."""
+    import datetime
+    import json
+
+    doc = {
+        "app": "com.paeezanstudio.pesarkhande",
+        "version": "3.4.2",
+        "variant": "offline-personal",
+        "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "literals": [
+            {"from": old, "to": new} for old, _, new in (r.partition("=") for r in renames)
+        ],
+        "native": native,
+        "reversible": "each entry records the original bytes; undo = restore them",
+    }
+    return (json.dumps(doc, indent=2) + "\n").encode()
+
+
+# ---------------------------------------------------------------------------
 # build pipeline
 # ---------------------------------------------------------------------------
 
@@ -106,6 +220,8 @@ def build(
     key: str,
     cert: str,
     extra_replace: Sequence[str] = (),
+    branches: Sequence[str] = (),
+    lib_name: str = LIBIL2CPP,
 ) -> List[str]:
     os.makedirs(out_dir, exist_ok=True)
     ensure_key(key, cert)
@@ -123,12 +239,25 @@ def build(
             raise SystemExit(f"literal not found: {old!r}")
         print(f"  {hits} occurrence(s)")
 
+    native_records: List[dict] = []
+    lib_payloads: Dict[str, bytes] = {}
+    if branches:
+        if not split_apk:
+            raise SystemExit("--branch needs --split (it carries libil2cpp.so)")
+        print(f"[1.5/4] patching native code in {lib_name}")
+        with zipfile.ZipFile(split_apk) as z:
+            so = z.read(lib_name)
+        lib_payloads[lib_name], native_records = patch_native(so, branches)
+
+    manifest = build_manifest(renames, native_records)
+
     print("[2/4] rebuilding base APK")
     tmp_base = os.path.join(out_dir, "base-unsigned.apk")
     builder = ApkBuilder(base_apk).replace(METADATA_ENTRY, bytes(meta))
     for spec in extra_replace:
         name, path = spec.split("=", 1)
         builder.replace(name, open(path, "rb").read())
+    builder.add(MANIFEST_ENTRY, manifest)
     builder.build(tmp_base)
 
     print("[3/4] signing base")
@@ -140,7 +269,10 @@ def build(
     if split_apk:
         print("[4/4] rebuilding + signing split")
         tmp_split = os.path.join(out_dir, "split-unsigned.apk")
-        ApkBuilder(split_apk).build(tmp_split)
+        split_builder = ApkBuilder(split_apk)
+        for name, payload in lib_payloads.items():
+            split_builder.replace(name, payload)
+        split_builder.build(tmp_split)
         split_out = os.path.join(out_dir, "pesarkhande-offline-split_config.arm64_v8a.apk")
         sign(tmp_split, split_out, key, cert)
         os.remove(tmp_split)
@@ -163,6 +295,8 @@ def build_single(
     key: str,
     cert: str,
     extra_replace: Sequence[str] = (),
+    branches: Sequence[str] = (),
+    lib_name: str = LIBIL2CPP,
 ) -> str:
     """Merge base + native libs from the split into one standalone APK.
 
@@ -182,6 +316,7 @@ def build_single(
     if not libs:
         raise SystemExit("the split APK contains no lib/ entries")
 
+
     print("[1/4] patching metadata literals")
     for spec in renames:
         old, new = spec.split("=", 1)
@@ -189,6 +324,13 @@ def build_single(
         if hits == 0:
             raise SystemExit(f"literal not found: {old!r}")
         print(f"  {hits} occurrence(s)")
+
+    native_records: List[dict] = []
+    if branches:
+        if lib_name not in libs:
+            raise SystemExit(f"{lib_name} not found in the split APK")
+        print(f"[1.5/4] patching native code in {lib_name}")
+        libs[lib_name], native_records = patch_native(libs[lib_name], branches)
 
     print("[2/4] patching manifest (isSplitRequired -> false)")
     manifest, hits = set_bool_attribute(manifest, "application", "isSplitRequired", False)
@@ -207,6 +349,7 @@ def build_single(
         builder.replace(name, open(path, "rb").read())
     for name, payload in libs.items():
         builder.add(name, payload)
+    builder.add(MANIFEST_ENTRY, build_manifest(renames, native_records))
     builder.build(tmp)
 
     print("[4/4] signing")
@@ -234,6 +377,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--split", default=None)
     p.add_argument("--out", default="out")
     p.add_argument("--rename", action="append", default=[], metavar="OLD=NEW")
+    p.add_argument(
+        "--branch",
+        action="append",
+        default=[],
+        metavar="SITE=TARGET",
+        help="write an AArch64 'b' at virtual address SITE going to TARGET (hex)",
+    )
+    p.add_argument("--lib", default=LIBIL2CPP, help="library that --branch applies to")
     p.add_argument("--single", action="store_true", help="merge base+split into one standalone APK")
     p.add_argument("--replace", action="append", default=[], metavar="NAME=PATH")
     p.add_argument("--key", default="keys/release.key.pem")
@@ -249,11 +400,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if args.single:
             if not args.split:
                 raise SystemExit("--single requires --split")
-            out = build_single(args.base, args.split, args.out, args.rename, args.key, args.cert, args.replace)
+            out = build_single(
+                args.base, args.split, args.out, args.rename, args.key, args.cert,
+                args.replace, args.branch, args.lib,
+            )
             print("\ninstall with:")
             print(f"  adb install {out}")
         else:
-            outs = build(args.base, args.split, args.out, args.rename, args.key, args.cert, args.replace)
+            outs = build(
+                args.base, args.split, args.out, args.rename, args.key, args.cert,
+                args.replace, args.branch, args.lib,
+            )
             print("\ninstall with:")
             print("  adb install-multiple " + " ".join(outs))
     elif args.cmd == "inspect":
