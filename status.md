@@ -121,7 +121,7 @@
 | M0 | آزمون سوایپ از لبه بالا (ابزار تستری داخلی) | ⏳ منتظر تست کاربر روی دستگاه |
 | M1 | زنجیره ابزار | ✅ انجام شد — [`docs/03-toolchain.md`](docs/03-toolchain.md) |
 | M2 | بوت آفلاین | 🟡 **دو واریانت** ساخته و امضا شد (A: پچ داده `ConnectionScreen→MainMenu`، B: پچ بومی `SetupFlow→LoadMainMenu` @ `0x14c00a8`→`0x14c6498`) — **منتظر تست روی دستگاه** ([راهنما](docs/04-install-guide.md)) |
-| M3 | نبرد آفلاین با AI | 🟡 دو بیلد آزمایشی: `out-battle/` (ورود به `Arena_1`) و `out-bot/` (سه قلاب `PrepareAndWaitForStart*` → `InitTestMode` = spawn هر دو تیم + نوبت ۴۰ ثانیه‌ای)؛ هر دو منتظر تست دستگاه |
+| M3 | نبرد آفلاین با AI | 🟡 سه بیلد آزمایشی: `out-battle/` (ورود به `Arena_1`)، `out-debug/` (همین + `isInDevelopment=true` → GUI دیباگ خودِ بازی)، `out-bot/` (سه قلاب `PrepareAndWaitForStart*` → `InitTestMode` = spawn هر دو تیم + نوبت ۴۰ ثانیه‌ای)؛ همه منتظر تست دستگاه |
 | M4 | ذخیره محلی + بکاپ | ⏸️ راهنمای `adb backup` مستند شد |
 | M5 | فروشگاه شبیه‌سازی‌شده | ⏸️ |
 | M6 | بسته نهایی arm64 | ⏸️ |

@@ -12,6 +12,7 @@
 |------|-------|-------|
 | زنجیره ابزار | ✅ کامل | پارسر IL2CPP، بازسازی ZIP، امضای v1+v2+v3، اسکریپت build برای Linux/macOS/Windows |
 | بوت آفلاین (رد شدن از صفحه‌ی اتصال) | 🟡 دو واریانت ساخته‌شده، **آزمون‌نشده** | A: پچ داده‌محور `ConnectionScreen → MainMenu`؛ B: پچ کد بومی `SetupFlow → LoadMainMenu` |
+| ابزار دیباگ روی دستگاه | 🟡 بیلد `out-debug/` | `Constants.isInDevelopment = true` → GUI دیباگ خودِ بازی در آرنا (دکمه‌ی «Start Battle» = `InitTestMode`) |
 | ادغام base+split در یک APK | ✅ کامل | `isSplitRequired=false`، ۱۶ کتابخانه‌ی بومی |
 | پروفایل محلی | ❌ انجام نشده | بازی هنوز پروفایل را از سرور می‌خواهد |
 | نبرد آفلاین با AI | 🟡 دو بیلد آزمایشی | `out-battle/` فقط وارد آرنا می‌شود؛ `out-bot/` سه مسیر `PrepareAndWaitForStart*` را به `InitTestMode` وصل می‌کند (spawn هر دو تیم + نوبت ۴۰ ثانیه‌ای) |

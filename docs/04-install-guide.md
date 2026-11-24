@@ -99,11 +99,24 @@ out/pesarkhande-offline-arm64.apk
 OUT=/tmp/build ./build.sh         # پوشه‌ی خروجی دلخواه
 ```
 
-### دو واریانت M2 — کدام را نصب کنم؟
+### ماتریس بیلدها — کدام را نصب کنم؟
 
-هر دو خروجی یک نام و یک پکیج دارند و **روی هم نصب می‌شوند** (فقط یکی را هر بار نگه دارید).
+همه‌ی بیلدها یک نام و یک پکیج دارند و **روی هم نصب می‌شوند** (فقط یکی را هر بار نگه دارید).
+هر بیلد یک آزمایش مستقل است؛ ترتیب پیشنهادی از ساده به پیچیده:
 
-| | واریانت A — «ریدایرکت داده» (پیش‌فرض) | واریانت B — «پچ کد بومی» |
+| # | پوشه | محتوا | چه چیزی را ثابت می‌کند |
+|---|------|-------|------------------------|
+| A | `out/` | فقط ریدایرکت رشته | آیا منو بدون صفحه‌ی اتصال بالا می‌آید؟ |
+| B | `out-native/` | پچ کد بومی `SetupFlow→LoadMainMenu` | همان A با مکانیزم دیگر (اگر A کرش کرد) |
+| C | `out-battle/` | A + قلاب `StartBattle→LoadBattle(0,null)` | آیا ورود به `Arena_1` ممکن است؟ |
+| D | `out-debug/` | C + `Constants.isInDevelopment = true` | **GUI دیباگ خودِ بازی** در آرنا — می‌توانید دکمه‌ی «Start Battle» را خودتان بزنید |
+| E | `out-bot/` | C + سه قلاب `PrepareAndWaitForStart*→InitTestMode` | آیا نبرد با بات خودکار شروع می‌شود؟ |
+
+**پیشنهاد:** A → C → D → E. هر کدام کار کرد، همان را نگه دارید و بقیه را حذف کنید.
+
+### واریانت A — ریدایرکت داده (پیش‌فرض)
+
+| | واریانت A | واریانت B |
 |---|---|---|
 | دستور | `./build.sh` | `BRANCH="0x14c00a8=0x14c6498" NO_RENAME=1 OUT=out-native ./build.sh` |
 | چه تغییری می‌کند | literal رشته‌ای `ConnectionScreen` در `global-metadata.dat` → `MainMenu` | یک دستور `b` در `libil2cpp.so` که `ConnectionManager.SetupFlow` را به `LoadMainMenu` می‌برد |
@@ -112,7 +125,9 @@ OUT=/tmp/build ./build.sh         # پوشه‌ی خروجی دلخواه
 | ریسک | منو بدون `ConnectionManager` بالا می‌آید | `ConnectionManager` ساخته می‌شود ولی `Init`/`ConnectToServer` اجرا نمی‌شود |
 
 **پیشنهاد:** اول **A** را تست کنید (ساده‌تر و قابل‌برگشت‌تر). اگر منو بالا نیامد یا کرش کرد،
-**B** را تست کنید و نتیجه‌ی هر دو را بگویید — تفاوت رفتارشان دقیقاً می‌گوگوید مشکل کجاست.
+**B** را تست کنید و نتیجه‌ی هر دو را بگویید — تفاوت رفتارشان دقیقاً می‌گوید مشکل کجاست.
+
+### واریانت B — پچ کد بومی
 
 خروجی واریانت B در `out-native/pesarkhande-offline-arm64.apk` است. در ویندوز:
 `set BRANCH=0x14c00a8=0x14c6498` و `set NO_RENAME=1` و `set OUT=out-native` و بعد `build.cmd`.
@@ -184,7 +199,31 @@ python tools/patch.py build \
 مرحله‌ی بعدی تزریق دک پیش‌فرض است. اگر نوبت‌ها شروع نشدند، یعنی `BotController` باید
 فعال شود (`MT_OnJoinroom` در بازی اصلی `BotController.Init` را صدا می‌زند).
 
-هر چهار بیلد روی هم نصب می‌شوند (یک پکیج، یک کلید) — فقط یکی را نگه دارید.
+### بیلد پنجم — «دیباگ» (D) — بهترین ابزار برای مرحله‌ی بعد
+
+این بیلد مثل C است، ولی یک بایت هم عوض می‌کند: `Constants.isInDevelopment` در
+`Constants..cctor` (آدرس `0x170dff4`) از `mov w0, wzr` به `mov w0, #1` یعنی `true`.
+
+```bash
+python tools/patch.py build \
+  --base original/pesarkhande-3.4.2-base.apk \
+  --split original/pesarkhande-3.4.2-split_config.arm64_v8a.apk \
+  --single --rename ConnectionScreen=MainMenu \
+  --branch 0x15a1868=0x14c00ac \
+  --write "0x14c00ac=01008052e2031faa87180014" \
+  --write "0x170dff4=20008052" \
+  --out out-debug/
+```
+
+چرا ارزشمند است: `LevelController.OnGUI` تمام GUI دیباگ را پشت همین فلگ پنهان کرده
+(شامل دکمه‌ی **«Start Battle»** که مستقیم `InitTestMode` را صدا می‌زند، و دکمه‌های
+`Test Draft` / `Test Random` / `Test Switch Turn`). با این بیلد شما می‌توانید **بدون بیلد
+جدید** خودتان مسیر نبرد را امتحان کنید و ببینید کدام مرحله گیر می‌کند.
+
+اثرهای جانبی فلگ (همه بی‌خطر): `LogHandler` لاگ کامل می‌گیرد، `PlayGamesPlatform.DebugLogEnabled = true`،
+FPS counter روشن می‌شود، `MenuManager.Update` فقط یک تایمر بی‌اثر دارد.
+
+هر پنج بیلد روی هم نصب می‌شوند (یک پکیج، یک کلید) — فقط یکی را نگه دارید.
 
 ### اجرای دستی (بدون اسکریپت)
 ```bash
