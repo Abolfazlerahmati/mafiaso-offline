@@ -79,6 +79,8 @@ jobs:
           with urllib.request.urlopen(req, timeout=30) as r:
               doc = json.loads(r.read())
           print("BAZAAR REPLY:", json.dumps(doc, indent=2)[:4000])
+          with open("out/bazaar_reply.json", "w") as f:
+              json.dump(doc, f, indent=2)
           reply = doc["singleReply"]["appDownloadInfoReply"]
           prefix = reply["cdnPrefix"]
           if isinstance(prefix, list):
@@ -124,7 +126,9 @@ jobs:
           git rm -rf --cached . >/dev/null 2>&1 || true
           rm -rf .github
           cp out/part-* .
+          [ -f out/bazaar_reply.json ] && cp out/bazaar_reply.json . || true
           git add part-*
+          [ -f bazaar_reply.json ] && git add bazaar_reply.json || true
           git commit -m "apk parts"
           git push origin HEAD:refs/tags/apk-parts --force
           echo "PUBLISHED"
