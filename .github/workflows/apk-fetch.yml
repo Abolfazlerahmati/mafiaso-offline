@@ -1,8 +1,8 @@
 name: apk-fetch
 
-# Temporary helper: downloads the public APK and publishes it as a tag
-# (split into <100MB parts) so it can be retrieved from a network that
-# only allows github.com / codeload.github.com.
+# Temporary helper: downloads the public APK (and split APKs when available)
+# and publishes them as a tag split into <100MB parts, so the files can be
+# retrieved from a network that only allows github.com / codeload.github.com.
 
 on:
   workflow_dispatch:
@@ -11,8 +11,8 @@ on:
         description: Android package name
         default: com.paeezanstudio.pesarkhande
       source:
-        description: apkpure or bazaar
-        default: apkpure
+        description: apkpure, xapk or bazaar
+        default: bazaar
 
 permissions:
   contents: write
@@ -20,7 +20,7 @@ permissions:
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,94 +30,104 @@ jobs:
       - name: Download APK
         env:
           PKG: ${{ github.event.inputs.package || 'com.paeezanstudio.pesarkhande' }}
-          SRC: ${{ github.event.inputs.source || 'apkpure' }}
+          SRC: ${{ github.event.inputs.source || 'bazaar' }}
         run: |
           set -euxo pipefail
           mkdir -p out
           UA='Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36'
 
-          if [ "$SRC" = "xapk" ]; then
-            for url in \
-              "https://d.apkpure.com/b/XAPK/${PKG}?version=latest" \
-              "https://d.apkpure.net/b/XAPK/${PKG}?version=latest"; do
-              echo "trying $url"
-              if curl -fL --retry 5 --retry-delay 5 --connect-timeout 20 -A "$UA" -o out/game.apk "$url"; then
-                if unzip -l out/game.apk 2>/dev/null | grep -q '\.apk'; then
-                  echo "OK XAPK: $url"
-                  unzip -l out/game.apk | head -40
-                  break
-                fi
-              fi
-              rm -f out/game.apk
-            done
-          elif [ "$SRC" = "bazaar" ]; then
+          if [ "$SRC" = "bazaar" ]; then
             python3 - <<'PY'
           import json, os, urllib.request
+
           pkg = os.environ["PKG"]
           payload = {
-            "properties": {
-              "language": 2,
-              "clientVersionCode": 2800100,
-              "androidClientInfo": {"sdkVersion": 27, "cpu": "x86,armeabi-v7a,armeabi"},
-              "clientVersion": "28.1.0",
-              "isKidsEnabled": False,
-            },
-            "singleRequest": {
-              "appDownloadInfoRequest": {
-                "downloadStatus": 1,
-                "packageName": pkg,
-                "referrers": [],
-              }
-            },
+              "properties": {
+                  "language": 2,
+                  "clientVersionCode": 2800100,
+                  "androidClientInfo": {"sdkVersion": 27, "cpu": "x86,armeabi-v7a,armeabi"},
+                  "clientVersion": "28.1.0",
+                  "isKidsEnabled": False,
+              },
+              "singleRequest": {
+                  "appDownloadInfoRequest": {
+                      "downloadStatus": 1,
+                      "packageName": pkg,
+                      "referrers": [],
+                  }
+              },
           }
           req = urllib.request.Request(
               "https://api.cafebazaar.ir/rest-v1/process/AppDownloadInfoRequest",
               data=json.dumps(payload).encode(),
-              headers={"Accept": "application/json", "Content-Type": "application/json",
-                       "User-Agent": "cafebazaar-apk-downloader-python/1.0"},
-              method="POST")
+              headers={
+                  "Accept": "application/json",
+                  "Content-Type": "application/json",
+                  "User-Agent": "cafebazaar-apk-downloader-python/1.0",
+              },
+              method="POST",
+          )
           with urllib.request.urlopen(req, timeout=30) as r:
               doc = json.loads(r.read())
-          print("BAZAAR REPLY:", json.dumps(doc, indent=2)[:4000])
           with open("out/bazaar_reply.json", "w") as f:
               json.dump(doc, f, indent=2)
           reply = doc["singleReply"]["appDownloadInfoReply"]
           prefix = reply["cdnPrefix"]
           if isinstance(prefix, list):
               prefix = prefix[0]
-          url = f"{str(prefix).rstrip('/')}/apks/{reply['token']}.apk"
-          print("Bazaar URL:", url)
-          with urllib.request.urlopen(url, timeout=120) as r, open("out/game.apk", "wb") as f:
-              while True:
-                  chunk = r.read(1024 * 1024)
-                  if not chunk:
-                      break
-                  f.write(chunk)
+          prefix = str(prefix).rstrip("/")
+
+          def fetch(url, dest):
+              print("fetch", dest, url)
+              r = urllib.request.Request(url, headers={"User-Agent": "cafebazaar-apk-downloader-python/1.0"})
+              with urllib.request.urlopen(r, timeout=300) as resp, open(dest, "wb") as out:
+                  while True:
+                      chunk = resp.read(1024 * 1024)
+                      if not chunk:
+                          break
+                      out.write(chunk)
+              print("saved", dest, os.path.getsize(dest))
+
+          base_url = reply["fullPathUrls"][0] if reply.get("fullPathUrls") else f"{prefix}/apks/{reply['token']}"
+          fetch(base_url, "out/base.apk")
+          for i, split in enumerate(reply.get("splits", [])):
+              url = split["fullPathUrls"][0] if split.get("fullPathUrls") else f"{prefix}/{split['relativePath']}"
+              fetch(url, f"out/split_{i}.apk")
+          print("bazaar files:", sorted(os.listdir("out")))
           PY
           else
             for url in \
+              "https://d.apkpure.com/b/XAPK/${PKG}?version=latest" \
+              "https://d.apkpure.net/b/XAPK/${PKG}?version=latest" \
               "https://d.apkpure.com/b/APK/${PKG}?version=latest" \
               "https://d.apkpure.net/b/APK/${PKG}?version=latest" \
               "https://apkpure.com/mafioso-godfather-of-mafia/${PKG}/download"; do
               echo "trying $url"
-              if curl -fL --retry 5 --retry-delay 5 --connect-timeout 20 -A "$UA" -o out/game.apk "$url"; then
-                if unzip -tq out/game.apk >/dev/null 2>&1; then
+              if curl -fL --retry 5 --retry-delay 5 --connect-timeout 20 -A "$UA" -o out/base.apk "$url"; then
+                if unzip -tq out/base.apk >/dev/null 2>&1; then
                   echo "OK: $url"
                   break
                 fi
               fi
-              rm -f out/game.apk
+              rm -f out/base.apk
             done
           fi
 
-          test -s out/game.apk
-          unzip -l out/game.apk | head -40
+          test -s out/base.apk
+          unzip -tq out/base.apk
+          for f in out/split_*.apk; do
+            [ -e "$f" ] || continue
+            unzip -tq "$f"
+          done
+          unzip -l out/base.apk | head -40
+          ls -la out
 
-      - name: Split and publish parts as a tag
+      - name: Publish files as a tag
         run: |
           set -euxo pipefail
           cd out
-          split -b 90m -d -a 2 game.apk part-
+          tar -cf set.tar ./*.apk
+          split -b 90m -d -a 2 set.tar part-
           ls -la
           cd ..
           git config user.name "apk-fetch-bot"
@@ -129,6 +139,6 @@ jobs:
           [ -f out/bazaar_reply.json ] && cp out/bazaar_reply.json . || true
           git add part-*
           [ -f bazaar_reply.json ] && git add bazaar_reply.json || true
-          git commit -m "apk parts"
+          git commit -m "apk set parts"
           git push origin HEAD:refs/tags/apk-parts --force
           echo "PUBLISHED"
