@@ -138,7 +138,7 @@ OUT=/tmp/build ./build.sh         # پوشه‌ی خروجی دلخواه
 خروجی واریانت B در `out-native/pesarkhande-offline-arm64.apk` است. در ویندوز:
 `set BRANCH=0x14c00a8=0x14c6498` و `set NO_RENAME=1` و `set OUT=out-native` و بعد `build.cmd`.
 
-هر دو واریانت فایل `assets/pesarkhande-offline/patches.json` را داخل APK می‌گذارند؛
+همه‌ی بیلدها فایل `assets/pesarkhande-offline/patches.json` را داخل APK می‌گذارند؛
 فهرست کامل تغییرات (رشته‌ها، آدرس‌ها، بایت‌های قبل/بعد) آنجاست — هم برای بازگشت و هم برای بازرسی.
 
 ### بیلد سوم — «نبرد آزمایشی» (اختیاری، فقط بعد از تأیید M2)
