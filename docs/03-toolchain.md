@@ -373,6 +373,13 @@ $ python tools/xref.py disasm ConnectionManager LoadMainMenu
 - **`PlayerProfile`** همه‌اش استاتیک است (۱۸۰ فیلد، صفر اینستنس) و فقط از
   `ConnectionManager.SetProfileData → PlayerProfile.SetPlayerProfile(json)` پر می‌شود
   → در بوت آفلاین، منو با پروفایل خالی (`..cctor`) بالا می‌آید. این مهم‌ترین ریسک باقی‌مانده است.
+- **شروع‌کننده‌ی نبرد آفلاین:** `LevelController.InitTestMode` در `0x149f16c` —
+  `SpawnOurUnits` + `FillEnemyUnitsToSpawn` + `SpawnEnemyUnits`، مدت نوبت `40.0f`،
+  `PAID = 1`، سپس jump به `0x149d780`. در بازی اصلی فقط از دکمه‌ی دیباگ `OnGUI` صدا
+  زده می‌شود؛ مسیر عادی `PrepareAndWaitForStart*` فقط `Invoke("GameStartTimeOut", t)` است.
+- **مسیر بات خودِ بازی:** `MenuManager.AskPlayWithBot` → callback `<>c__DisplayClass253_0.<AskPlayWithBot>b__0`
+  → `MenuManager.MT_OnJoinroom(data)`؛ همان متد `PlayerProfile.SetDeck`، `LoadScene`،
+  `Constants.set_NextScene` و **`BotController.Init`** را صدا می‌زند.
 - **ابزار تستری**: `TesterToolUnlockManager`, `TesterToolSwipeDetector`, `TesterToolsManager`,
   `TesterHeroUnlocker`, `TesterChestAdder`, `TesterSkinUnlocker`, `TestersCustomProfileManager` —
   سوایپ از لبه‌ی بالا در صحنه‌ی اتصال (M0).

@@ -151,6 +151,41 @@ python tools/patch.py build \
 اگر منو با این بیلد بالا نیامد، یعنی `StartBattle` در استارتاپ صدا زده می‌شود —
 همین را هم گزارش کنید.
 
+### بیلد چهارم — «نبرد با بات» (جدیدترین نامزد M3)
+
+این بیلد سه قلاب دیگر هم اضافه می‌کند تا ورود به آرنا **مستقیم به شروع نبرد** بخورد.
+نکته‌ی کلیدی: `LevelController.InitTestMode` (آدرس `0x149f16c`) خودش یک شروع‌کننده‌ی کامل
+است — هر دو تیم را spawn می‌کند، مدت نوبت را ۴۰ ثانیه می‌گذارد، `PAID = 1` می‌کند و
+به شروع بازی jump می‌زند. در بازی اصلی این متد فقط از دکمه‌ی دیباگ `OnGUI` («Start Battle»)
+صدا زده می‌شود؛ ما سه مسیر `PrepareAndWaitForStart*` را به آن وصل می‌کنیم:
+
+```bash
+python tools/patch.py build \
+  --base original/pesarkhande-3.4.2-base.apk \
+  --split original/pesarkhande-3.4.2-split_config.arm64_v8a.apk \
+  --single --rename ConnectionScreen=MainMenu \
+  --branch 0x15a1868=0x14c00ac \
+  --write "0x14c00ac=01008052e2031faa87180014" \
+  --branch 0x14986f0=0x149f16c \
+  --branch 0x1498744=0x149f16c \
+  --branch 0x1498850=0x149f16c \
+  --out out-bot/
+```
+
+| قلاب | از | به | اثر |
+|------|-----|-----|------|
+| ۱ | `MenuManager.StartBattle` `0x15a1868` | کِیو `0x14c00ac` | دکمه‌ی نبرد → `LoadBattle(0, null)` → `Arena_1` |
+| ۲ | `LevelController.PrepareAndWaitForStartBattle` `0x14986f0` | `InitTestMode` `0x149f16c` | به‌جای انتظار برای سرور، هر دو تیم spawn می‌شوند |
+| ۳ | `LevelController.PrepareAndWaitForStartDraft` `0x1498744` | `InitTestMode` | اگر `battleType` درفت باشد، باز هم مستقیم نبرد |
+| ۴ | `LevelController.PrepareAndWaitForStartRandom` `0x1498850` | `InitTestMode` | اگر حالت تصادفی باشد، باز هم مستقیم نبرد |
+
+**انتظار:** منو → دکمه‌ی نبرد → `Arena_1` → بدون صفحه‌ی درفت، دو تیم روی زمین → نوبت ۴۰ ثانیه‌ای.
+اگر تیم‌ها خالی بودند، یعنی `PlayerProfile.deck` خالی است (دک از سرور می‌آید) — آن‌وقت
+مرحله‌ی بعدی تزریق دک پیش‌فرض است. اگر نوبت‌ها شروع نشدند، یعنی `BotController` باید
+فعال شود (`MT_OnJoinroom` در بازی اصلی `BotController.Init` را صدا می‌زند).
+
+هر چهار بیلد روی هم نصب می‌شوند (یک پکیج، یک کلید) — فقط یکی را نگه دارید.
+
 ### اجرای دستی (بدون اسکریپت)
 ```bash
 python3 -m pip install -r requirements.txt

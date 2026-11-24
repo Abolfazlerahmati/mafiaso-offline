@@ -14,7 +14,7 @@
 | بوت آفلاین (رد شدن از صفحه‌ی اتصال) | 🟡 دو واریانت ساخته‌شده، **آزمون‌نشده** | A: پچ داده‌محور `ConnectionScreen → MainMenu`؛ B: پچ کد بومی `SetupFlow → LoadMainMenu` |
 | ادغام base+split در یک APK | ✅ کامل | `isSplitRequired=false`، ۱۶ کتابخانه‌ی بومی |
 | پروفایل محلی | ❌ انجام نشده | بازی هنوز پروفایل را از سرور می‌خواهد |
-| نبرد آفلاین با AI | 🟡 بیلد آزمایشی ساخته شد | قلاب `StartBattle → LoadBattle(0, null)` → `Arena_1`؛ رفتار داخل آرنا نامشخص |
+| نبرد آفلاین با AI | 🟡 دو بیلد آزمایشی | `out-battle/` فقط وارد آرنا می‌شود؛ `out-bot/` سه مسیر `PrepareAndWaitForStart*` را به `InitTestMode` وصل می‌کند (spawn هر دو تیم + نوبت ۴۰ ثانیه‌ای) |
 | ذخیره‌ی محلی / بکاپ | ❌ انجام نشده | فقط راهنمای `adb backup` |
 | فروشگاه شبیه‌سازی‌شده | ❌ انجام نشده | `fakeBuy` در بازی هست ولی در دسترس نیست |
 | حذف SDKهای شبکه | ❌ انجام نشده | هنوز در APK هستند |
@@ -90,6 +90,14 @@
 **نامشخص:** داخل `Arena_1`، `LevelController` با `Constants.LiveMode == true` احتمالاً
 منتظر رویداد حریف می‌ماند. برای نبرد واقعی باید `BotController` فعال شود
 (`LevelController.InitTestMode` / `SimulateBotAction`) — نیازمند مشاهده‌ی لاگ روی دستگاه.
+
+**یافته‌ی مهم (بیلد چهارم):** `LevelController.InitTestMode` (`0x149f16c`) یک شروع‌کننده‌ی
+کامل آفلاین است: `SetActive(false)` روی دراپ‌داون/انتخاب آرنا، `SpawnOurUnits`،
+`FillEnemyUnitsToSpawn`، `SpawnEnemyUnits`، مدت نوبت = `40.0f` (`0x42200000`)، `PAID = 1`،
+و jump به `0x149d780`. در بازی اصلی فقط از دکمه‌ی دیباگ `OnGUI` («Start Battle») صدا
+زده می‌شود. بیلد `out-bot/` سه مسیر `PrepareAndWaitForStart*` را به آن وصل می‌کند.
+مسیر جایگزین (بدون پچ آرنا): `MenuManager.AskPlayWithBot` → `MT_OnJoinroom(data)` که
+خودش `BotController.Init` را صدا می‌زند — ولی به یک `JSONObject` نیاز دارد.
 
 ### ۳.۳. `offlineMode` (حل شد)
 آفست‌ها با `tools/xref.py layout` به‌دست آمد: `ConnectionManager.offlineMode = 0x40`،
