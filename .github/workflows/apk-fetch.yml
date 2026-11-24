@@ -19,6 +19,12 @@ on:
       sdk:
         description: Android SDK for Bazaar split selection
         default: '33'
+      url:
+        description: URL to fetch when source=url
+        default: ''
+      name:
+        description: Output file name when source=url
+        default: 'file.bin'
 
 permissions:
   contents: write
@@ -39,6 +45,8 @@ jobs:
           SRC: ${{ github.event.inputs.source || 'bazaar' }}
           CPU: ${{ github.event.inputs.cpu || 'arm64-v8a' }}
           SDK: ${{ github.event.inputs.sdk || '33' }}
+          URL: ${{ github.event.inputs.url || '' }}
+          NAME: ${{ github.event.inputs.name || 'file.bin' }}
         run: |
           set -euxo pipefail
           mkdir -p out
@@ -103,6 +111,9 @@ jobs:
               fetch(url, f"out/split_{i}.apk")
           print("bazaar files:", sorted(os.listdir("out")))
           PY
+          elif [ "$SRC" = "url" ]; then
+            test -n "$URL"
+            curl -fL --retry 3 --retry-delay 3 --connect-timeout 20 -A "$UA" -o "out/$NAME" "$URL"
           else
             for url in \
               "https://d.apkpure.com/b/XAPK/${PKG}?version=latest" \
@@ -121,20 +132,26 @@ jobs:
             done
           fi
 
-          test -s out/base.apk
-          unzip -tq out/base.apk
-          for f in out/split_*.apk; do
-            [ -e "$f" ] || continue
-            unzip -tq "$f"
-          done
-          unzip -l out/base.apk | head -40
+          if [ "$SRC" = "url" ]; then
+            test -s "out/$NAME"
+            head -c 500 "out/$NAME" || true
+            echo
+          else
+            test -s out/base.apk
+            unzip -tq out/base.apk
+            for f in out/split_*.apk; do
+              [ -e "$f" ] || continue
+              unzip -tq "$f"
+            done
+            unzip -l out/base.apk | head -40
+          fi
           ls -la out
 
       - name: Publish files as a tag
         run: |
           set -euxo pipefail
           cd out
-          tar -cf set.tar ./*.apk
+          tar -cf set.tar --exclude=set.tar .
           split -b 90m -d -a 2 set.tar part-
           ls -la
           cd ..
