@@ -1,0 +1,8 @@
+# Required to BUILD the APK (tools/patch.py, tools/apk.py, tools/axml.py).
+# pkcs7.PKCS7SignatureBuilder (the OpenSSL-free v1 fallback) needs >= 41.
+cryptography>=41
+
+# Optional — analysis only, not needed for the build:
+#   pip install UnityPy capstone androguard
+# (tools/xref.py needs capstone; tools/il2cpp.py disasm, UnityPy asset extraction,
+#  androguard manifest/APK inspection)
