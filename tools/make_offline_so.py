@@ -63,7 +63,7 @@ def main() -> None:
     code += bytes.fromhex("fd7bbea9fd030091f30b00f9f30300aa")
     code += enc_adrp(pc_va + len(code), json_va, 0)
     code += enc_add_imm(0, 0, json_va & 0xFFF)
-    code += enc_bl(pc + len(code), 0x11FB038)
+    code += enc_bl(pc + len(code), 0x11F7038)
     code += enc_bl(pc + len(code), 0x174E0A4)
     code += bytes.fromhex("e10300aa000080d2")
     code += enc_bl(pc + len(code), 0x165B46C)
