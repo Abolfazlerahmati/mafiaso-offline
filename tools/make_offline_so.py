@@ -56,10 +56,12 @@ def main() -> None:
     data[json_off : json_off + len(json_bytes)] = json_bytes
 
     pc = 0x14C00A8
+    pc_va = pc + 0x4000
+    json_va = json_off + 0x8000
     code = bytearray()
     code += bytes.fromhex("fd7bbfa9fd030091")
-    code += enc_adrp(pc + len(code), json_off, 0)
-    code += enc_add_imm(0, 0, json_off & 0xFFF)
+    code += enc_adrp(pc_va + len(code), json_va, 0)
+    code += enc_add_imm(0, 0, json_va & 0xFFF)
     code += enc_bl(pc + len(code), 0x11FB038)
     code += enc_bl(pc + len(code), 0x174E0A4)
     code += bytes.fromhex("e10300aa000080d2")
