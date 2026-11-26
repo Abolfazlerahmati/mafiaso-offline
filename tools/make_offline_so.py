@@ -59,14 +59,16 @@ def main() -> None:
     pc_va = pc + 0x4000
     json_va = json_off + 0x8000
     code = bytearray()
-    code += bytes.fromhex("fd7bbfa9fd030091")
+    # stp x29, x30, [sp, #-32]! ; mov x29, sp ; str x19, [sp, #16] ; mov x19, x0
+    code += bytes.fromhex("fd7bbea9fd030091f30b00f9f30300aa")
     code += enc_adrp(pc_va + len(code), json_va, 0)
     code += enc_add_imm(0, 0, json_va & 0xFFF)
     code += enc_bl(pc + len(code), 0x11FB038)
     code += enc_bl(pc + len(code), 0x174E0A4)
     code += bytes.fromhex("e10300aa000080d2")
     code += enc_bl(pc + len(code), 0x165B46C)
-    code += bytes.fromhex("fd7bc1a8")
+    # mov x0, x19 ; ldr x19, [sp, #16] ; ldp x29, x30, [sp], #32
+    code += bytes.fromhex("e00313aaf30b40f9fd7bc2a8")
     code += enc_b(pc + len(code), 0x14C6498)
     data[pc : pc + len(code)] = code
 
