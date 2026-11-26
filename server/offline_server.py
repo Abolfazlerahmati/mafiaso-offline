@@ -31,6 +31,42 @@ class OfflineHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         print(f"[GET] {parsed.path}?{parsed.query}")
+        # WebSocket upgrade (for ws://127.0.0.1:8080/socket.io/...)
+        if self.headers.get("Upgrade", "").lower() == "websocket":
+            import base64, hashlib
+            key = self.headers.get("Sec-WebSocket-Key", "")
+            accept = base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
+            self.send_response(101, "Switching Protocols")
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept)
+            self.end_headers()
+            print("[WS] Connected!")
+            # Keep socket open and log incoming frames
+            try:
+                while True:
+                    hdr = self.rfile.read(2)
+                    if not hdr or len(hdr) < 2:
+                        break
+                    opcode = hdr[0] & 0x0F
+                    masked = (hdr[1] & 0x80) != 0
+                    length = hdr[1] & 0x7F
+                    if length == 126:
+                        length = int.from_bytes(self.rfile.read(2), "big")
+                    elif length == 127:
+                        length = int.from_bytes(self.rfile.read(8), "big")
+                    mask = self.rfile.read(4) if masked else b""
+                    data = bytearray(self.rfile.read(length))
+                    if masked:
+                        for i in range(length):
+                            data[i] ^= mask[i % 4]
+                    if opcode == 8:
+                        break
+                    print(f"[WS RX] {data.decode('utf-8', 'replace')[:300]}")
+            except Exception as e:
+                print("[WS] Closed:", e)
+            return
+
         # Socket.IO v2/v3 polling handshake
         if parsed.path.startswith("/socket.io"):
             if "sid=" not in parsed.query:
