@@ -51,27 +51,6 @@ def main() -> None:
         "deck": heroes[:4],
         "unlockedSkins": [],
     }
-    json_bytes = json.dumps(profile, separators=(",", ":")).encode("utf-8") + b"\x00"
-    json_off = 0x2A59400
-    data[json_off : json_off + len(json_bytes)] = json_bytes
-
-    pc = 0x14C00A8
-    pc_va = pc + 0x4000
-    json_va = json_off + 0x8000
-    code = bytearray()
-    # stp x29, x30, [sp, #-32]! ; mov x29, sp ; str x19, [sp, #16] ; mov x19, x0
-    code += bytes.fromhex("fd7bbea9fd030091f30b00f9f30300aa")
-    code += enc_adrp(pc_va + len(code), json_va, 0)
-    code += enc_add_imm(0, 0, json_va & 0xFFF)
-    code += enc_bl(pc + len(code), 0x11F7038)
-    code += enc_bl(pc + len(code), 0x174E0A4)
-    code += bytes.fromhex("e10300aa000080d2")
-    code += enc_bl(pc + len(code), 0x165B46C)
-    # mov x0, x19 ; ldr x19, [sp, #16] ; ldp x29, x30, [sp], #32
-    code += bytes.fromhex("e00313aaf30b40f9fd7bc2a8")
-    code += enc_b(pc + len(code), 0x14C6498)
-    data[pc : pc + len(code)] = code
-
     ret_addrs = [
         0x16728C4, 0x167641C, 0x167633C,
         0x159C400, 0x15A3C68, 0x159FBF0, 0x15C33D0,
