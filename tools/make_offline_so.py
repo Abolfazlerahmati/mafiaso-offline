@@ -47,8 +47,21 @@ def main() -> None:
         "trophy": 5000,
         "level": 10,
         "xp": 0,
-        "heros": [{"name": h, "level": 1, "cards": 9999} for h in heroes],
-        "deck": heroes[:4],
+        "heroes": {
+            h: {
+                "heroID": h,
+                "level": 1,
+                "cardsCount": 9999,
+                "ab1": {"level": 1, "cardsCount": 9999},
+                "ab2": {"level": 1, "cardsCount": 9999},
+                "sp": {"level": 1, "cardsCount": 9999},
+                "rentRefreshSeconds": 0,
+                "skinID": "",
+                "isNewlyAchieved": False,
+            }
+            for h in heroes
+        },
+        "deck": heroes[:3],
         "unlockedSkins": [],
     }
     ret_addrs = [
